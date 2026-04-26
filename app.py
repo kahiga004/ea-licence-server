@@ -9,7 +9,7 @@ app = Flask(__name__)
 # CONFIGURATION
 # ==========================================
 # WARNING: This MUST match the exact secret key in your C++ DLL!
-SECRET_KEY = "CHANGE_ME_TO_A_RANDOM_LONG_STRING" 
+SECRET_KEY = "MySup3rS3cr3tK3y_998877!" 
 DB_NAME = "licenses.db"
 
 # ==========================================
