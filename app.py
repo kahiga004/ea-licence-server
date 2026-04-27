@@ -126,6 +126,11 @@ def validate():
     hwid = data.get('hwid', '')
     timestamp = data.get('timestamp', '')
     token = data.get('token', '')
+    print(f"Received HWID: {hwid}")
+    print(f"Received Timestamp: {timestamp}")
+    print(f"Received Token: {token}")
+    raw_string = f"{timestamp}{hwid}{SECRET_KEY}"
+    print(f"Python is hashing: {raw_string}")
 
     # 1. Check Timestamp (Reject if older than 60 seconds to prevent replay attacks)
     try:
