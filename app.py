@@ -51,6 +51,7 @@ def validate():
     token = data.get('token', '')
 
     raw_string = f"{timestamp}{hwid}{SECRET_KEY}"
+    print(f"!!! PYTHON LENGTHS -> HWID: {len(hwid)}, KEY: {len(SECRET_KEY)} !!!") # ADD THIS
     expected_token = hashlib.sha256(raw_string.encode()).hexdigest()
     
     if expected_token != token:
