@@ -154,9 +154,12 @@ def add_license():
     hwid = data.get('hwid', '').strip()
     months = data.get('months', 1)
     if not hwid: return jsonify({"success": False, "message": "Invalid HWID"})
+    
     conn = get_db()
-    conn.execute("INSERT INTO licenses (hwid, is_active, months_purchased, created_at) VALUES (%s, TRUE, %s, CURRENT_TIMESTAMP) ON CONFLICT (hwid) DO UPDATE SET is_active = TRUE, months_purchased = %s, created_at = CURRENT_TIMESTAMP", (hwid, months, months))
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO licenses (hwid, is_active, months_purchased, created_at) VALUES (%s, TRUE, %s, CURRENT_TIMESTAMP) ON CONFLICT (hwid) DO UPDATE SET is_active = TRUE, months_purchased = %s, created_at = CURRENT_TIMESTAMP", (hwid, months, months))
     conn.commit()
+    cursor.close()
     conn.close()
     return jsonify({"success": True, "message": f"License activated for {months} month(s)!"})
 
@@ -165,17 +168,22 @@ def remove_license():
     data = request.json
     hwid = data.get('hwid', '').strip()
     if not hwid: return jsonify({"success": False, "message": "Invalid HWID"})
+    
     conn = get_db()
-    conn.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (hwid,))
+    cursor = conn.cursor()
+    cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (hwid,))
     conn.commit()
+    cursor.close()
     conn.close()
     return jsonify({"success": True, "message": "License deactivated!"})
 
 @app.route('/admin/delete/<hwid>')
 def delete_license(hwid):
     conn = get_db()
-    conn.execute("DELETE FROM licenses WHERE hwid = %s", (hwid,))
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM licenses WHERE hwid = %s", (hwid,))
     conn.commit()
+    cursor.close()
     conn.close()
     return "Deleted"
 
