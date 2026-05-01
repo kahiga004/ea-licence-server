@@ -1,34 +1,13 @@
 from flask import Flask, request, jsonify, render_template_string
-import sqlite3
 import hashlib
 import os
 from datetime import datetime, timedelta
+import psycopg2
 
 app = Flask(__name__)
 SECRET_KEY = "123" # CHANGE THIS TO YOUR REAL SECRET KEY!
-DB_NAME = "licenses.db"
 
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    # Updated Database Schema to track time and months
-    c.execute('''CREATE TABLE IF NOT EXISTS licenses (
-                    hwid TEXT PRIMARY KEY,
-                    is_active BOOLEAN DEFAULT 1,
-                    months_purchased INTEGER DEFAULT 1,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )''')
-    conn.commit()
-    conn.close()
-
-def get_db():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-# ==========================================
-# MODERN HTML DASHBOARD
-# ==========================================
+# Modern Dashboard HTML (Same as before)
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html>
@@ -62,7 +41,6 @@ DASHBOARD_HTML = """
 <body>
     <div class="container">
         <h2>🛡️ EA License Manager</h2>
-        
         <div class="card">
             <div class="form-group">
                 <label>Hardware ID (HWID)</label>
@@ -77,57 +55,37 @@ DASHBOARD_HTML = """
                 <button class="btn-remove" onclick="manageLicense('remove')">❌ Deactivate</button>
             </div>
         </div>
-
         <table>
-            <thead>
-                <tr>
-                    <th>HWID</th>
-                    <th>Status</th>
-                    <th>Months</th>
-                    <th>Expires On</th>
-                    <th>Time Remaining</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
+            <thead><tr><th>HWID</th><th>Status</th><th>Months</th><th>Expires On</th><th>Time Remaining</th><th>Action</th></tr></thead>
             <tbody>
                 {% for row in licenses %}
                 <tr>
                     <td class="hwid-col" title="{{ row['hwid'] }}">{{ row['hwid'][:20] }}...</td>
                     <td>
-                        {% if row['is_active'] and row['days_left'] > 7 %}
-                            <span class="badge badge-active">Active</span>
-                        {% elif row['is_active'] and row['days_left'] <= 7 %}
-                            <span class="badge badge-expiring">Expiring Soon</span>
-                        {% else %}
-                            <span class="badge badge-inactive">Inactive</span>
-                        {% endif %}
+                        {% if row['is_active'] and row['days_left'] > 7 %}<span class="badge badge-active">Active</span>
+                        {% elif row['is_active'] and row['days_left'] <= 7 %}<span class="badge badge-expiring">Expiring Soon</span>
+                        {% else %}<span class="badge badge-inactive">Inactive</span>{% endif %}
                     </td>
                     <td>{{ row['months_purchased'] }}</td>
                     <td>{{ row['expiry_date'] }}</td>
                     <td style="color: {% if row['days_left'] <= 7 %}red{% endif %}; font-weight: bold;">
                         {% if row['is_active'] %}{{ row['days_left'] }} Days{% else %}N/A{% endif %}
                     </td>
-                    <td><a href="/admin/delete/{{ row['hwid'] }}" class="action-btn" onclick="return confirm('Permanently delete this HWID?')">Delete</a></td>
+                    <td><a href="/admin/delete/{{ row['hwid'] }}" class="action-btn" onclick="return confirm('Permanently delete?')">Delete</a></td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-
     <script>
         function manageLicense(action) {
             var hwid = document.getElementById('hwidInput').value.trim();
             var months = document.getElementById('monthsInput').value;
             if(!hwid) { alert("Please enter a HWID!"); return; }
-            
             fetch('/admin/' + action, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ hwid: hwid, months: parseInt(months) })
-            }).then(response => response.json()).then(data => {
-                alert(data.message);
-                if(data.success) location.reload();
-            });
+            }).then(r => r.json()).then(d => { alert(d.message); if(d.success) location.reload(); });
         }
     </script>
 </body>
@@ -135,35 +93,51 @@ DASHBOARD_HTML = """
 """
 
 # ==========================================
-# DASHBOARD ROUTES
+# POSTGRESQL DATABASE CONNECTION
+# ==========================================
+def get_db():
+    # This automatically picks up the DATABASE_URL you set in Render Environment Variables
+    conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+    return conn
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS licenses (
+                    hwid TEXT PRIMARY KEY,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    months_purchased INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )''')
+    conn.commit()
+    conn.close()
+
+# ==========================================
+# ROUTES (Logic remains exactly the same)
 # ==========================================
 @app.route('/')
 def dashboard():
     conn = get_db()
-    # Fetch all licenses and calculate expiration dynamically
     rows = conn.execute("SELECT * FROM licenses ORDER BY created_at DESC").fetchall()
-    
     licenses_list = []
     for row in rows:
         row_dict = dict(row)
         if row['created_at']:
-            created_dt = datetime.strptime(row['created_at'], "%Y-%m-%d %H:%M:%S")
+            # Safely format Postgres timestamp
+            created_dt = row['created_at'].strftime("%Y-%m-%d %H:%M:%S")
+            created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
             expiry_dt = created_dt + timedelta(days=30 * row['months_purchased'])
             days_left = (expiry_dt - datetime.now()).days
-            
             row_dict['expiry_date'] = expiry_dt.strftime("%Y-%m-%d")
             row_dict['days_left'] = days_left
             
-            # Auto-expire if time is up
             if days_left <= 0 and row['is_active']:
-                conn.execute("UPDATE licenses SET is_active = 0 WHERE hwid = ?", (row['hwid'],))
+                conn.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (row['hwid'],))
                 row_dict['is_active'] = False
         else:
             row_dict['expiry_date'] = "N/A"
             row_dict['days_left'] = 0
-            
         licenses_list.append(row_dict)
-        
     conn.commit()
     conn.close()
     return render_template_string(DASHBOARD_HTML, licenses=licenses_list)
@@ -174,10 +148,8 @@ def add_license():
     hwid = data.get('hwid', '').strip()
     months = data.get('months', 1)
     if not hwid: return jsonify({"success": False, "message": "Invalid HWID"})
-    
     conn = get_db()
-    # Insert or update (renews the start date if they pay for more months)
-    conn.execute("INSERT OR REPLACE INTO licenses (hwid, is_active, months_purchased, created_at) VALUES (?, 1, ?, CURRENT_TIMESTAMP)", (hwid, months))
+    conn.execute("INSERT INTO licenses (hwid, is_active, months_purchased, created_at) VALUES (%s, TRUE, %s, CURRENT_TIMESTAMP) ON CONFLICT (hwid) DO UPDATE SET is_active = TRUE, months_purchased = %s, created_at = CURRENT_TIMESTAMP", (hwid, months, months))
     conn.commit()
     conn.close()
     return jsonify({"success": True, "message": f"License activated for {months} month(s)!"})
@@ -187,9 +159,8 @@ def remove_license():
     data = request.json
     hwid = data.get('hwid', '').strip()
     if not hwid: return jsonify({"success": False, "message": "Invalid HWID"})
-    
     conn = get_db()
-    conn.execute("UPDATE licenses SET is_active = 0 WHERE hwid = ?", (hwid,))
+    conn.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (hwid,))
     conn.commit()
     conn.close()
     return jsonify({"success": True, "message": "License deactivated!"})
@@ -197,14 +168,11 @@ def remove_license():
 @app.route('/admin/delete/<hwid>')
 def delete_license(hwid):
     conn = get_db()
-    conn.execute("DELETE FROM licenses WHERE hwid = ?", (hwid,))
+    conn.execute("DELETE FROM licenses WHERE hwid = %s", (hwid,))
     conn.commit()
     conn.close()
-    return "Deleted" # Simple redirect fallback
+    return "Deleted"
 
-# ==========================================
-# API ROUTE (Called by EA)
-# ==========================================
 @app.route('/api/validate', methods=['POST'])
 def validate():
     data = request.json
@@ -219,18 +187,19 @@ def validate():
         return jsonify({"status": "failed", "is_active": False})
 
     conn = get_db()
-    user = conn.execute("SELECT is_active, created_at, months_purchased FROM licenses WHERE hwid = ?", (hwid,)).fetchone()
+    # Note: Postgres uses %s instead of ? for variables
+    user = conn.execute("SELECT is_active, created_at, months_purchased FROM licenses WHERE hwid = %s", (hwid,)).fetchone()
     
-    if user and user['is_active']:
-        created_dt = datetime.strptime(user['created_at'], "%Y-%m-%d %H:%M:%S")
-        expiry_dt = created_dt + timedelta(days=30 * user['months_purchased'])
+    if user and user[0]: # user[0] is is_active
+        created_dt = user[1].strftime("%Y-%m-%d %H:%M:%S")
+        created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
+        expiry_dt = created_dt + timedelta(days=30 * user[2])
         
         if datetime.now() < expiry_dt:
             conn.close()
             return jsonify({"status": "success", "is_active": True})
         else:
-            # Auto-expire if time is up
-            conn.execute("UPDATE licenses SET is_active = 0 WHERE hwid = ?", (hwid,))
+            conn.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (hwid,))
             conn.commit()
             conn.close()
             return jsonify({"status": "expired", "is_active": False})
@@ -240,5 +209,6 @@ def validate():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    # init_db() is safe to run on Postgres, it uses "IF NOT EXISTS"
     init_db()
     app.run(host='0.0.0.0', port=port, debug=False)
