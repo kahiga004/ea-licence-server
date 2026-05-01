@@ -118,7 +118,11 @@ def init_db():
 @app.route('/')
 def dashboard():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM licenses ORDER BY created_at DESC").fetchall()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM licenses ORDER BY created_at DESC")
+    rows = cursor.fetchall()
+    
     licenses_list = []
     for row in rows:
         row_dict = dict(row)
@@ -132,13 +136,15 @@ def dashboard():
             row_dict['days_left'] = days_left
             
             if days_left <= 0 and row['is_active']:
-                conn.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (row['hwid'],))
+                cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (row['hwid'],))
                 row_dict['is_active'] = False
         else:
             row_dict['expiry_date'] = "N/A"
             row_dict['days_left'] = 0
         licenses_list.append(row_dict)
+    
     conn.commit()
+    cursor.close()
     conn.close()
     return render_template_string(DASHBOARD_HTML, licenses=licenses_list)
 
