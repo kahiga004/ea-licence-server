@@ -3,11 +3,11 @@ import hashlib
 import os
 from datetime import datetime, timedelta
 import psycopg2
+from psycopg2.extras import RealDictCursor # THIS FIXES THE DICTIONARY ERROR
 
 app = Flask(__name__)
 SECRET_KEY = "123" # CHANGE THIS TO YOUR REAL SECRET KEY!
 
-# Modern Dashboard HTML (Same as before)
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html>
@@ -96,47 +96,45 @@ DASHBOARD_HTML = """
 # POSTGRESQL DATABASE CONNECTION
 # ==========================================
 def get_db():
-    # This automatically picks up the DATABASE_URL you set in Render Environment Variables
-    conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
-    return conn
+    return psycopg2.connect(os.environ.get("DATABASE_URL"))
 
 def init_db():
     conn = get_db()
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS licenses (
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS licenses (
                     hwid TEXT PRIMARY KEY,
                     is_active BOOLEAN DEFAULT TRUE,
                     months_purchased INTEGER DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )''')
     conn.commit()
+    cursor.close()
     conn.close()
 
 # ==========================================
-# ROUTES (Logic remains exactly the same)
+# ROUTES
 # ==========================================
 @app.route('/')
 def dashboard():
     conn = get_db()
-    cursor = conn.cursor()
-    
+    # RealDictCursor makes rows act like dictionaries (Fixes the crash)
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute("SELECT * FROM licenses ORDER BY created_at DESC")
     rows = cursor.fetchall()
     
     licenses_list = []
     for row in rows:
-        row_dict = dict(row)
-        if row['created_at']:
-            # Safely format Postgres timestamp
-            created_dt = row['created_at'].strftime("%Y-%m-%d %H:%M:%S")
+        row_dict = dict(row) 
+        if row_dict['created_at']:
+            created_dt = row_dict['created_at'].strftime("%Y-%m-%d %H:%M:%S")
             created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
-            expiry_dt = created_dt + timedelta(days=30 * row['months_purchased'])
+            expiry_dt = created_dt + timedelta(days=30 * row_dict['months_purchased'])
             days_left = (expiry_dt - datetime.now()).days
             row_dict['expiry_date'] = expiry_dt.strftime("%Y-%m-%d")
             row_dict['days_left'] = days_left
             
-            if days_left <= 0 and row['is_active']:
-                cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (row['hwid'],))
+            if days_left <= 0 and row_dict['is_active']:
+                cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (row_dict['hwid'],))
                 row_dict['is_active'] = False
         else:
             row_dict['expiry_date'] = "N/A"
@@ -154,7 +152,6 @@ def add_license():
     hwid = data.get('hwid', '').strip()
     months = data.get('months', 1)
     if not hwid: return jsonify({"success": False, "message": "Invalid HWID"})
-    
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("INSERT INTO licenses (hwid, is_active, months_purchased, created_at) VALUES (%s, TRUE, %s, CURRENT_TIMESTAMP) ON CONFLICT (hwid) DO UPDATE SET is_active = TRUE, months_purchased = %s, created_at = CURRENT_TIMESTAMP", (hwid, months, months))
@@ -168,7 +165,6 @@ def remove_license():
     data = request.json
     hwid = data.get('hwid', '').strip()
     if not hwid: return jsonify({"success": False, "message": "Invalid HWID"})
-    
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (hwid,))
@@ -201,28 +197,32 @@ def validate():
         return jsonify({"status": "failed", "is_active": False})
 
     conn = get_db()
-    # Note: Postgres uses %s instead of ? for variables
-    user = conn.execute("SELECT is_active, created_at, months_purchased FROM licenses WHERE hwid = %s", (hwid,)).fetchone()
+    # Use RealDictCursor here too so we can use column names
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT is_active, created_at, months_purchased FROM licenses WHERE hwid = %s", (hwid,))
+    user = cursor.fetchone()
     
-    if user and user[0]: # user[0] is is_active
-        created_dt = user[1].strftime("%Y-%m-%d %H:%M:%S")
+    if user and user['is_active']:
+        created_dt = user['created_at'].strftime("%Y-%m-%d %H:%M:%S")
         created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
-        expiry_dt = created_dt + timedelta(days=30 * user[2])
+        expiry_dt = created_dt + timedelta(days=30 * user['months_purchased'])
         
         if datetime.now() < expiry_dt:
+            cursor.close()
             conn.close()
             return jsonify({"status": "success", "is_active": True})
         else:
-            conn.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (hwid,))
+            cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (hwid,))
             conn.commit()
+            cursor.close()
             conn.close()
             return jsonify({"status": "expired", "is_active": False})
             
+    cursor.close()
     conn.close()
     return jsonify({"status": "failed", "is_active": False})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    # init_db() is safe to run on Postgres, it uses "IF NOT EXISTS"
     init_db()
     app.run(host='0.0.0.0', port=port, debug=False)
