@@ -505,7 +505,7 @@ def master_view_partner(username):
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # 1. Get Partner Info safely (using LOWER to prevent case-sensitivity bugs)
+    # Get Partner Info
     cursor.execute("SELECT id, business_name FROM partners WHERE LOWER(username) = LOWER(%s)", (username,))
     partner = cursor.fetchone()
     if not partner: 
@@ -515,34 +515,30 @@ def master_view_partner(username):
     
     pid = partner['id']
     
-    # 2. Get Their Clients using the exact same safe query the Partner uses
+    # Fetch Clients using the EXACT same query as the Partner Dashboard
     cursor.execute("SELECT * FROM licenses WHERE partner_id = %s ORDER BY created_at DESC", (pid,))
     rows = cursor.fetchall()
     
+    # Process data using the EXACT same working logic as the Partner Dashboard
     licenses_list = []
     for row in rows:
-        try:
-            row_dict = dict(row)
-            if row_dict['created_at']:
-                created_dt = row_dict['created_at'].strftime("%Y-%m-%d %H:%M:%S")
-                created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
-                expiry_dt = created_dt + timedelta(days=30 * row_dict['months_purchased'])
-                days_left = (expiry_dt - datetime.now()).days
-                row_dict['expiry_date'] = expiry_dt.strftime("%Y-%m-%d")
-                row_dict['days_left'] = days_left
-                
-                if days_left <= 0 and row_dict['is_active']:
-                    cursor.execute("UPDATE licenses SET is_active = FALSE WHERE id = %s", (row_dict['id'],))
-                    conn.commit() # Commit the auto-expire update
-                    row_dict['is_active'] = False
-            else:
-                row_dict['expiry_date'] = "N/A"
-                row_dict['days_left'] = 0
-                
-            licenses_list.append(row_dict)
-        except Exception as e:
-            print(f"Error processing client row: {e}") # Skips broken rows instead of crashing the page
-            
+        row_dict = dict(row)
+        if row_dict['created_at']:
+            created_dt = row_dict['created_at'].strftime("%Y-%m-%d %H:%M:%S")
+            created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
+            expiry_dt = created_dt + timedelta(days=30 * row_dict['months_purchased'])
+            days_left = (expiry_dt - datetime.now()).days
+            row_dict['expiry_date'] = expiry_dt.strftime("%Y-%m-%d")
+            row_dict['days_left'] = days_left
+            if days_left <= 0 and row_dict['is_active']:
+                cursor.execute("UPDATE licenses SET is_active = FALSE WHERE id = %s", (row_dict['id'],))
+                row_dict['is_active'] = False
+        else:
+            row_dict['expiry_date'] = "N/A"
+            row_dict['days_left'] = 0
+        licenses_list.append(row_dict)
+        
+    conn.commit()
     cursor.close()
     conn.close()
     
@@ -557,6 +553,11 @@ def master_view_partner(username):
     <div class="container">
     <a href="/partners" class="back-link">← Back to Partners</a>
     <h2>{{ partner['business_name'] }} - Client List</h2>
+    
+    {% if licenses_list|length == 0 %}
+       <p style="text-align:center; color:red; font-weight:bold;">No clients found or database error. Check Render Logs.</p>
+    {% endif %}
+    
     <table><thead><tr><th>HWID</th><th>Status</th><th>Expires On</th><th>Days Left</th></tr></thead><tbody>
     {% for row in licenses_list %}
     <tr><td class="hwid-col" title="{{ row['hwid'] }}">{{ row['hwid'][:20] }}...</td>
