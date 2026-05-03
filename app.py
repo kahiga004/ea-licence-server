@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 # REQUIRED FOR LOGINS: Change this to a long random string
-app.secret_key = "123" 
+app.secret_key = "SAMUELKAHIGANJAU" 
 SECRET_KEY = "123" # MUST MATCH MQL5 EA CODE
 
 # MASTER ADMIN CREDS (To log into your main hub)
