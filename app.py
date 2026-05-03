@@ -264,6 +264,8 @@ def partners_dashboard():
     partners = cursor.fetchall()
     cursor.close()
     conn.close()
+    
+    # REMOVED the plain_password column from the table below because it doesn't exist in the database!
     return render_template_string("""
     <html><head><title>Manage Partners</title>
     <style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:20px;} .container{max-width:800px;margin:auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.05);}
@@ -279,8 +281,8 @@ def partners_dashboard():
     <div class="card"><div class="form-group"><label>Business Name</label><input type="text" id="bname" placeholder="e.g. QuantFX Capital"></div>
     <div class="form-group"><label>Max Clients Allowed</label><input type="number" id="mclients" value="50"></div>
     <button class="btn-add" onclick="addPartner()">Create Partner</button></div>
-    <table><thead><tr><th>Business Name</th><th>Login Username</th><th>Password</th><th>Clients Used</th><th>Status</th><th>Action</th></tr></thead><tbody>
-    {% for p in partners %}<tr><td><b>{{ p['business_name'] }}</b></td><td>{{ p['username'] }}</td><td style="font-family:monospace;font-size:12px;">{{ p['plain_password'] }}</td>
+    <table><thead><tr><th>Business Name</th><th>Login Username</th><th>Clients Used</th><th>Status</th><th>Action</th></tr></thead><tbody>
+    {% for p in partners %}<tr><td><b>{{ p['business_name'] }}</b></td><td>{{ p['username'] }}</td>
     <td>{{ p['client_count'] }} / {{ p['max_clients'] }}</td>
     <td>{% if p['is_active'] %}<span class="badge badge-active">Active</span>{% else %}<span class="badge badge-inactive">NUKED</span>{% endif %}</td>
     <td>{% if p['is_active'] %}<button class="btn-nuke" onclick="nukePartner('{{ p['username'] }}')">NUKE</button>{% endif %}</td></tr>{% endfor %}
@@ -291,7 +293,7 @@ def partners_dashboard():
     function nukePartner(u){if(confirm('NUKE this partner? ALL their clients will instantly shut down!')){fetch('/partners/api/nuke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}).then(r=>r.json()).then(d=>{alert(d.message);location.reload();});}}
     </script></body></html>
     """, partners=partners)
-
+    
 @app.route('/partners/api/add', methods=['POST'])
 @login_required('master')
 def add_partner():
@@ -418,47 +420,52 @@ def partner_api(action):
 # ==========================================
 @app.route('/api/validate', methods=['POST'])
 def validate():
-    data = request.json
-    hwid = str(data.get('hwid', '')).strip()
-    timestamp = str(data.get('timestamp', '')).strip()
-    token = data.get('token', '')
+    try:
+        data = request.json
+        hwid = str(data.get('hwid', '')).strip()
+        timestamp = str(data.get('timestamp', '')).strip()
+        token = data.get('token', '')
 
-    # 1. Cryptographic Check
-    raw_string = f"{timestamp}{hwid}{SECRET_KEY}"
-    expected_token = hashlib.sha256(raw_string.encode()).hexdigest()
-    if expected_token != token:
-        return jsonify({"status": "failed", "is_active": False})
+        # 1. Cryptographic Check
+        raw_string = f"{timestamp}{hwid}{SECRET_KEY}"
+        expected_token = hashlib.sha256(raw_string.encode()).hexdigest()
+        if expected_token != token:
+            return jsonify({"status": "failed", "is_active": False})
 
-    conn = get_db()
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    cursor.execute("SELECT l.is_active, l.created_at, l.months_purchased, p.is_active as partner_active FROM licenses l LEFT JOIN partners p ON l.partner_id = p.id WHERE l.hwid = %s", (hwid,))
-    user = cursor.fetchone()
-    
-    if not user:
-        cursor.close(); conn.close()
-        return jsonify({"status": "failed", "is_active": False})
-
-    # 2. THE NUCLEAR CHECK: If they belong to a B2B client, is that B2B client active?
-    if user['partner_active'] == False:
-        cursor.close(); conn.close()
-        return jsonify({"status": "failed", "is_active": False})
-
-    # 3. Time Check
-    if user['is_active'] and user['created_at']:
-        created_dt = user['created_at'].strftime("%Y-%m-%d %H:%M:%S")
-        created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
-        expiry_dt = created_dt + timedelta(days=30 * user['months_purchased'])
+        conn = get_db()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT l.is_active, l.created_at, l.months_purchased, p.is_active as partner_active FROM licenses l LEFT JOIN partners p ON l.partner_id = p.id WHERE l.hwid = %s", (hwid,))
+        user = cursor.fetchone()
         
-        if datetime.now() < expiry_dt:
+        if not user:
             cursor.close(); conn.close()
-            return jsonify({"status": "success", "is_active": True})
-        else:
-            cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (hwid,))
-            conn.commit()
+            return jsonify({"status": "failed", "is_active": False})
+
+        # 2. THE NUCLEAR CHECK: If they belong to a B2B client, is that B2B client active?
+        if user['partner_active'] == False:
+            cursor.close(); conn.close()
+            return jsonify({"status": "failed", "is_active": False})
+
+        # 3. Time Check
+        if user['is_active'] and user['created_at']:
+            created_dt = user['created_at'].strftime("%Y-%m-%d %H:%M:%S")
+            created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
+            expiry_dt = created_dt + timedelta(days=30 * user['months_purchased'])
             
-    cursor.close()
-    conn.close()
-    return jsonify({"status": "failed", "is_active": False})
+            if datetime.now() < expiry_dt:
+                cursor.close(); conn.close()
+                return jsonify({"status": "success", "is_active": True})
+            else:
+                cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (hwid,))
+                conn.commit()
+                
+        cursor.close()
+        conn.close()
+        return jsonify({"status": "failed", "is_active": False})
+        
+    except Exception as e:
+        # If the database is broken, print the exact error to the EA so we know what's wrong!
+        return jsonify({"status": "error", "message": str(e)})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
