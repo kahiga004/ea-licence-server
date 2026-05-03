@@ -265,7 +265,7 @@ def partners_dashboard():
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # FIXED: Added a subquery to dynamically count how many clients each partner has
+    # Get partners and their live client count
     cursor.execute("""
         SELECT p.*, 
                (SELECT COUNT(id) FROM licenses WHERE partner_id = p.id) as client_count 
@@ -278,7 +278,7 @@ def partners_dashboard():
     
     return render_template_string("""
     <html><head><title>Manage Partners</title>
-    <style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:20px;} .container{max-width:800px;margin:auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.05);}
+    <style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:20px;} .container{max-width:850px;margin:auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.05);}
     h2{text-align:center;color:#2c3e50;} .card{background:#f8f9fa;padding:20px;border-radius:8px;margin-bottom:20px;border:1px solid #e9ecef;}
     .form-group{margin-bottom:10px;} label{display:block;font-weight:600;margin-bottom:5px;font-size:14px;}
     input{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;}
@@ -291,12 +291,21 @@ def partners_dashboard():
     <div class="card"><div class="form-group"><label>Business Name</label><input type="text" id="bname" placeholder="e.g. QuantFX Capital"></div>
     <div class="form-group"><label>Max Clients Allowed</label><input type="number" id="mclients" value="50"></div>
     <button class="btn-add" onclick="addPartner()">Create Partner</button></div>
-    <table><thead><tr><th>Business Name</th><th>Login Username</th><th>Clients Used</th><th>Status</th><th>Action</th></tr></thead><tbody>
-    {% for p in partners %}<tr><td><b>{{ p['business_name'] }}</b></td><td>{{ p['username'] }}</td>
+    
+    <table><thead><tr><th>Business Name</th><th>Login Username</th><th>Clients Used</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+    {% for p in partners %}<tr>
+    <td><b>{{ p['business_name'] }}</b></td>
+    <td>{{ p['username'] }}</td>
     <td>{{ p['client_count'] }} / {{ p['max_clients'] }}</td>
     <td>{% if p['is_active'] %}<span class="badge badge-active">Active</span>{% else %}<span class="badge badge-inactive">NUKED</span>{% endif %}</td>
-    <td>{% if p['is_active'] %}<button class="btn-nuke" onclick="nukePartner('{{ p['username'] }}')">NUKE</button>{% endif %}</td></tr>{% endfor %}
+    <!-- THIS IS WHERE THE NEW BUTTON IS -->
+    <td>
+        {% if p['is_active'] %}<a href="/master/view_partner/{{ p['username'] }}" style="text-decoration:none;padding:6px 12px;background:#3498db;color:white;border-radius:4px;font-size:12px;margin-right:5px;">View Clients</a>{% endif %}
+        {% if p['is_active'] %}<button class="btn-nuke" onclick="nukePartner('{{ p['username'] }}')">NUKE</button>{% endif %}
+    </td>
+    </tr>{% endfor %}
     </tbody></table></div>
+    
     <script>
     function addPartner(){var n=document.getElementById('bname').value;var m=document.getElementById('mclients').value;if(!n){alert('Enter name');return;}
     fetch('/partners/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,max:m})}).then(r=>r.json()).then(d=>{alert(d.message);if(d.success)location.reload();});}
