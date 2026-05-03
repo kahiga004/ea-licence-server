@@ -304,7 +304,7 @@ def add_partner():
     
     # Create username from business name
     username = name.lower().replace(" ", "_").replace(".", "")
-    plain_pass = os.urandom(8).hex # Auto-generate secure password
+    plain_pass = os.urandom(8).hex() # Auto-generate secure password
     pass_hash = generate_password_hash(plain_pass)
     
     conn = get_db()
