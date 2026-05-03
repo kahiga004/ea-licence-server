@@ -7,13 +7,10 @@ from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-# REQUIRED FOR LOGINS: Change this to a long random string
-app.secret_key = "SAMUELKAHIGANJAU" 
-SECRET_KEY = "123" # MUST MATCH MQL5 EA CODE
-
-# MASTER ADMIN CREDS (To log into your main hub)
-MASTER_USERNAME = "admin"
-MASTER_PASSWORD = "Kahiga@6405SERVER" 
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "default_secret_key")
+SECRET_KEY = os.environ.get("EA_SECRET_KEY", "anom") # Your EA hash key
+MASTER_USERNAME = os.environ.get("MASTER_USER", "admin")
+MASTER_PASSWORD = os.environ.get("MASTER_PASS", "changeme")
 
 def get_db():
     return psycopg2.connect(os.environ.get("DATABASE_URL"))
