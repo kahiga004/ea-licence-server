@@ -258,12 +258,18 @@ def retail_delete(hwid):
 def partners_dashboard():
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    cursor.execute("SELECT * FROM partners ORDER BY business_name")
+    
+    # FIXED: Added a subquery to dynamically count how many clients each partner has
+    cursor.execute("""
+        SELECT p.*, 
+               (SELECT COUNT(id) FROM licenses WHERE partner_id = p.id) as client_count 
+        FROM partners p 
+        ORDER BY p.business_name
+    """)
     partners = cursor.fetchall()
     cursor.close()
     conn.close()
     
-    # REMOVED the plain_password column from the table below because it doesn't exist in the database!
     return render_template_string("""
     <html><head><title>Manage Partners</title>
     <style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;padding:20px;} .container{max-width:800px;margin:auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.05);}
