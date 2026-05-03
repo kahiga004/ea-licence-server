@@ -145,6 +145,18 @@ fetch('/retail/api/'+action,{method:'POST',headers:{'Content-Type':'application/
 # ==========================================
 # ROUTES: AUTH & MASTER DASHBOARD
 # ==========================================
+@app.route('/fix_db_secret')
+def fix_db():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DROP TABLE IF EXISTS licenses;")
+    cursor.execute("DROP TABLE IF EXISTS partners;")
+    conn.commit()
+    cursor.close()
+    conn.close()
+    init_db() # This will now recreate them perfectly
+    return "Database fixed perfectly! Delete this /fix_db_secret route from app.py now."
+
 @app.route('/', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
