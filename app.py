@@ -393,7 +393,7 @@ def partner_api(action):
     if not hwid: return jsonify({"success": False, "message": "Invalid HWID"})
     
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     # Check limit before adding
     if action == 'add':
