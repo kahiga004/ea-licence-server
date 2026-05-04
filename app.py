@@ -411,28 +411,40 @@ def partner_api(action):
     data = request.json
     hwid = data.get('hwid', '').strip()
     months = data.get('months', 1)
-    if not hwid: return jsonify({"success": False, "message": "Invalid HWID"})
     
-    conn = get_db()
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
-    # Check limit before adding
-    if action == 'add':
-        cursor.execute("SELECT max_clients FROM partners WHERE id = %s", (pid,))
-        max_c = cursor.fetchone()['max_clients']
-        cursor.execute("SELECT COUNT(id) FROM licenses WHERE partner_id = %s", (pid,))
-        current_c = cursor.fetchone()['count']
-        if current_c >= max_c:
-            return jsonify({"success": False, "message": f"LIMIT REACHED! You have {current_c}/{max_c} clients. Contact admin to upgrade."})
-            
-        cursor.execute("INSERT INTO licenses (hwid, partner_id, is_active, months_purchased, created_at) VALUES (%s, %s, TRUE, %s, CURRENT_TIMESTAMP) ON CONFLICT (hwid) DO UPDATE SET is_active = TRUE, months_purchased = %s, created_at = CURRENT_TIMESTAMP", (hwid, pid, months, months))
-    elif action == 'remove':
-        cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s AND partner_id = %s", (hwid, pid))
+    if not hwid: 
+        return jsonify({"success": False, "message": "Invalid HWID"})
         
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return jsonify({"success": True, "message": "Client updated!"})
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # STEP 1: Check if HWID exists ANYWHERE in the database (Prevents stealing retail clients)
+    cursor.execute("SELECT partner_id, is_active FROM licenses WHERE hwid = %s", (hwid,))
+    existing = cursor.fetchone()
+    
+    if existing:
+        cursor.close()
+        conn.close()
+        # If it belongs to THIS partner already, tell them to use Renew
+        if existing['partner_id'] == pid:
+            return jsonify({"success": False, "message": "HWID already exists under your account! Use Renew to add more time."})
+        # If it belongs to someone else (Retail or another Partner), block it completely
+        else:
+            return jsonify({"success": False, "message": "HWID is already registered under another account."})
+
+    # STEP 2: Clean Insert (No complex SQL conflicts)
+    try:
+        cursor.execute("INSERT INTO licenses (hwid, partner_id, is_active, months_purchased, created_at) VALUES (%s, %s, TRUE, %s, CURRENT_TIMESTAMP)", (hwid, pid, months))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "Client activated successfully!"})
+    except Exception as e:
+        # If it still fails, print the EXACT database error so we aren't guessing anymore
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": False, "message": f"Database Error: {str(e)}"})
 
 @app.route('/partner/api/delete/<hwid>', methods=['DELETE'])
 @login_required('partner')
