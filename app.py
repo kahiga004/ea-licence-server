@@ -26,6 +26,7 @@ def init_db():
                     password_hash TEXT NOT NULL,
                     max_clients INTEGER DEFAULT 50,
                     is_active BOOLEAN DEFAULT TRUE
+                    subscription_start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )''')
     # Create Licenses Table (Now includes partner_id for linking)
     cursor.execute('''CREATE TABLE IF NOT EXISTS licenses (
@@ -36,6 +37,11 @@ def init_db():
                     months_purchased INTEGER DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )''')
+    # Safe update for existing databases: add the column if it doesn't exist
+    try:
+        cursor.execute("ALTER TABLE partners ADD COLUMN subscription_start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    except psycopg2.errors.DuplicateColumn:
+        pass # Column already exists, ignore error
     conn.commit()
     cursor.close()
     conn.close()
@@ -71,6 +77,7 @@ MASTER_DASHBOARD_HTML = """
 <a href="/partners" style="text-decoration:none;"><div class="card"><h2>🏢 B2B Partners</h2><p>Manage brokers, prop firms, and influencers.</p></div></a>
 <!-- NEW CARD BELOW -->
 <a href="/all_clients" style="text-decoration:none;"><div class="card"><h2>🌍 All Users</h2><p>View every license in one place.</p></div></a>
+<a href="/partner_check" style="text-decoration:none;"><div class="card"><h2>📊 Partner Subs</h2><p>Monitor monthly cycles.</p></div></a>
 </div>
 </body></html>
 """
@@ -178,6 +185,49 @@ th{background-color:#2c3e50;color:white;}
 </tr>
 {% endfor %}</tbody></table>
 </div></body></html>
+"""
+
+PARTNER_CHECK_HTML = """
+<!DOCTYPE html><html><head><title>Partner Subscriptions</title>
+<style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;margin:0;padding:20px;color:#333;}
+.container{max-width:1000px;margin:20px auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.05);}
+h2{text-align:center;color:#2c3e50;} .back-link{display:inline-block;margin-bottom:20px;text-decoration:none;color:#3498db;font-weight:bold;}
+table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #dee2e6;}
+th{background-color:#2c3e50;color:white;} 
+.badge{padding:6px 10px;border-radius:4px;font-size:13px;font-weight:bold;color:white;}
+.badge-active{background:#28a745;} .badge-nuked{background:#dc3545;} .badge-expiring{background:#ffc107;color:#333;}
+.btn-action{padding:6px 14px;border:none;border-radius:4px;cursor:pointer;color:white;font-weight:bold;font-size:13px;text-decoration:none;margin-right:5px;}
+.btn-renew{background:#28a745;} .btn-unnuke{background:#3498db;} .btn-nuke{background:#dc3545;}</style></head><body>
+<div class="container">
+<a href="/master" class="back-link">← Back to Master Control</a>
+<h2>📊 Partner Subscription Monitor</h2>
+<table><thead><tr><th>Business Name</th><th>Active Clients</th><th>Limit</th><th>Status</th><th>Days Until Renewal</th><th>Actions</th></tr></thead><tbody>
+{% for p in partners %}
+<tr>
+<td><b>{{ p['business_name'] }}</b><br><small style="color:#7f8c8d;">{{ p['username'] }}</small></td>
+<td style="font-weight:bold;">{{ p['active_count'] }}</td>
+<td>{{ p['max_clients'] }}</td>
+<td>{% if p['is_active'] %}<span class="badge badge-active">Active</span>{% else %}<span class="badge badge-nuked">NUKED</span>{% endif %}</td>
+<td style="color:{% if p['days_left'] <= 3 %}red{% elif p['days_left'] <= 7 %}orange{% endif %};font-weight:bold;">
+    {% if p['is_active'] %}{{ p['days_left'] }} Days{% else %}N/A{% endif %}
+</td>
+<td>
+    {% if p['is_active'] %}
+        <button class="btn-action btn-nuke" onclick="nukePartner('{{ p['username'] }}')">NUKE</button>
+        <button class="btn-action btn-renew" onclick="renewPartner('{{ p['username'] }}')">Renew Month</button>
+    {% else %}
+        <button class="btn-action btn-unnuke" onclick="unnukePartner('{{ p['username'] }}')">UNNUKE & Renew</button>
+    {% endif %}
+</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+
+<script>
+function nukePartner(u){if(confirm('NUKE this partner?')){fetch('/partners/api/nuke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}).then(r=>r.json()).then(d=>{alert(d.message);location.reload();});}}
+function renewPartner(u){if(confirm('Reset their 30-day cycle?'){fetch('/partners/api/renew',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}).then(r=>r.json()).then(d=>{alert(d.message);location.reload();});}}
+function unnukePartner(u){if(confirm('Unnuke partner and reset 30-day cycle?'){fetch('/partners/api/renew',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}).then(r=>r.json()).then(d=>{alert(d.message);location.reload();});}}
+</script></body></html>
 """
 
 # ==========================================
@@ -363,8 +413,7 @@ def add_partner():
     conn = get_db()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO partners (business_name, username, password_hash, max_clients) VALUES (%s, %s, %s, %s) RETURNING password_hash", (name, username, pass_hash, max_c))
-        # We have to return the plain text password exactly once when created!
+        cursor.execute("INSERT INTO partners (business_name, username, password_hash, max_clients, subscription_start_date) VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP) RETURNING password_hash", (name, username, pass_hash, max_c))
     except Exception as e:
         conn.rollback()
         cursor.close()
@@ -390,6 +439,53 @@ def nuke_partner():
     cursor.close()
     conn.close()
     return jsonify({"success": True, "message": "Partner and ALL their clients have been shut down."})
+
+@app.route('/partner_check')
+@login_required('master')
+def partner_check():
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Query gets total partners, counts ONLY ACTIVE licenses, and gets start date
+    cursor.execute("""
+        SELECT p.*, 
+               (SELECT COUNT(id) FROM licenses WHERE partner_id = p.id AND is_active = TRUE) as active_count 
+        FROM partners p 
+        ORDER BY p.business_name
+    """)
+    partners = cursor.fetchall()
+    
+    # Calculate days left for each partner
+    for p in partners:
+        p = dict(p) # Convert to dict
+        if p['subscription_start_date']:
+            start_dt = p['subscription_start_date']
+            # Ensure it's a datetime object if it isn't already
+            if isinstance(start_dt, str):
+                start_dt = datetime.strptime(start_dt, "%Y-%m-%d %H:%M:%S")
+            renewal_dt = start_dt + timedelta(days=30)
+            p['days_left'] = (renewal_dt - datetime.now()).days
+        else:
+            p['days_left'] = 0
+            
+    cursor.close()
+    conn.close()
+    
+    return render_template_string(PARTNER_CHECK_HTML, partners=partners)
+
+@app.route('/partners/api/renew', methods=['POST'])
+@login_required('master')
+def renew_partner():
+    data = request.json
+    username = data.get('username')
+    conn = get_db()
+    cursor = conn.cursor()
+    # Unnukes them (is_active = TRUE) AND resets their 30-day timer to exactly right now
+    cursor.execute("UPDATE partners SET is_active = TRUE, subscription_start_date = CURRENT_TIMESTAMP WHERE username = %s", (username,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"success": True, "message": "Partner renewed and timer reset for 30 days!"})
 
 # ==========================================
 # ROUTES: PARTNER DASHBOARD (B2B Access)
@@ -452,6 +548,19 @@ def partner_api(action):
     
     # Check limit before adding
     if action == 'add':
+         # --- NEW SUBSCRIPTION CHECK ---
+        cursor.execute("SELECT max_clients, subscription_start_date FROM partners WHERE id = %s", (pid,))
+        sub_info = cursor.fetchone()
+        start_dt = sub_info['subscription_start_date']
+        if isinstance(start_dt, str):
+            start_dt = datetime.strptime(start_dt, "%Y-%m-%d %H:%M:%S")
+        days_left = (start_dt + timedelta(days=30) - datetime.now()).days
+        
+        if days_left <= 0:
+            return jsonify({"success": False, "message": "SUBSCRIPTION EXPIRED! Tell admin to renew."})
+        # --- END CHECK ---
+
+        max_c = sub_info['max_clients']
         cursor.execute("SELECT max_clients FROM partners WHERE id = %s", (pid,))
         max_c = cursor.fetchone()['max_clients']
         cursor.execute("SELECT COUNT(id) FROM licenses WHERE partner_id = %s", (pid,))
@@ -564,7 +673,7 @@ def validate():
 
         conn = get_db()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT l.is_active, l.created_at, l.months_purchased, p.is_active as partner_active FROM licenses l LEFT JOIN partners p ON l.partner_id = p.id WHERE l.hwid = %s", (hwid,))
+        cursor.execute("SELECT l.is_active, l.created_at, l.months_purchased, p.is_active as partner_active, p.subscription_start_date FROM licenses l LEFT JOIN partners p ON l.partner_id = p.id WHERE l.hwid = %s", (hwid,))
         user = cursor.fetchone()
         
         if not user:
@@ -588,6 +697,17 @@ def validate():
             else:
                 cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s", (hwid,))
                 conn.commit()
+
+         # 2.5 NEW CHECK: Partner Subscription Expiry
+        if user['partner_active'] == True and user['subscription_start_date'] is not None:
+            start_dt = user['subscription_start_date']
+            if isinstance(start_dt, str):
+                start_dt = datetime.strptime(start_dt, "%Y-%m-%d %H:%M:%S")
+            partner_days_left = (start_dt + timedelta(days=30) - datetime.now()).days
+            
+            if partner_days_left <= 0:
+                cursor.close(); conn.close()
+                return jsonify({"status": "failed", "is_active": False})
                 
         cursor.close()
         conn.close()
