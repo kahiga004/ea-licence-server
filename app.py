@@ -407,7 +407,7 @@ def partner_dashboard():
 @app.route('/partner/api/<action>', methods=['POST'])
 @login_required('partner')
 def partner_api(action):
-    pid = session['partner_id']
+    pid = int(session['partner_id'])
     data = request.json
     hwid = data.get('hwid', '').strip()
     months = data.get('months', 1)
