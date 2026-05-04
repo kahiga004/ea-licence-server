@@ -64,22 +64,121 @@ button:hover{background:#2980b9;}</style></head><body>
 """
 
 MASTER_DASHBOARD_HTML = """
-<!DOCTYPE html><html><head><title>Master Admin</title>
-<style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;margin:0;padding:40px;}
-.header{text-align:center;margin-bottom:40px;} h1{color:#2c3e50;}
-.container{display:flex;justify-content:center;gap:40px;}
-.card{background:#fff;padding:40px;border-radius:10px;box-shadow:0 4px 15px rgba(0,0,0,0.1);width:400px;text-align:center;cursor:pointer;transition:transform 0.2s;}
-.card:hover{transform:translateY(-5px);} h2{color:#3498db;} p{color:#7f8c8d;}
-.btn{display:inline-block;margin-top:20px;padding:12px 30px;background:#3498db;color:white;text-decoration:none;border-radius:5px;font-weight:bold;}</style></head><body>
-<div class="header"><h1>🛡️ SaaS Master Control</h1><p>Welcome back, God Mode.</p></div>
-<div class="container">
-<a href="/retail" style="text-decoration:none;"><div class="card"><h2>👤 Retail Clients</h2><p>Manage direct-to-consumer licenses.</p></div></a>
-<a href="/partners" style="text-decoration:none;"><div class="card"><h2>🏢 B2B Partners</h2><p>Manage brokers, prop firms, and influencers.</p></div></a>
-<!-- NEW CARD BELOW -->
-<a href="/all_clients" style="text-decoration:none;"><div class="card"><h2>🌍 All Users</h2><p>View every license in one place.</p></div></a>
-<a href="/partner_check" style="text-decoration:none;"><div class="card"><h2>📊 Partner Subs</h2><p>Monitor monthly cycles.</p></div></a>
+<!DOCTYPE html>
+<html>
+<head>
+<title>Master Admin</title>
+<style>
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f4f7f6;
+    margin: 0;
+    padding: 40px 20px;
+    color: #333;
+}
+.header {
+    text-align: center;
+    margin-bottom: 50px;
+}
+.header h1 {
+    color: #2c3e50;
+    font-size: 32px;
+    margin: 0 0 10px 0;
+}
+.header p {
+    color: #7f8c8d;
+    font-size: 16px;
+}
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 30px;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+.card {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 40px 20px;
+    text-align: center;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    border: 2px solid transparent;
+}
+.card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+    border-color: #3498db;
+}
+.card-icon {
+    font-size: 48px;
+    margin-bottom: 20px;
+}
+.card h2 {
+    color: #2c3e50;
+    margin: 0 0 10px 0;
+    font-size: 22px;
+}
+.card p {
+    color: #7f8c8d;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+}
+.logout-btn {
+    display: block;
+    width: 150px;
+    margin: 50px auto 0;
+    padding: 12px;
+    background: #e74c3c;
+    color: white;
+    text-align: center;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: bold;
+}
+.logout-btn:hover {
+    background: #c0392b;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>🛡️ SaaS Master Control</h1>
+    <p>Manage your entire licensing ecosystem</p>
 </div>
-</body></html>
+
+<div class="grid">
+    <a href="/retail" class="card">
+        <div class="card-icon">👤</div>
+        <h2>Retail Clients</h2>
+        <p>Manage direct-to-consumer licenses and activations.</p>
+    </a>
+    <a href="/partners" class="card">
+        <div class="card-icon">🏢</div>
+        <h2>B2B Partners</h2>
+        <p>Create partners, set limits, and manage access.</p>
+    </a>
+    <a href="/all_clients" class="card">
+        <div class="card-icon">🌍</div>
+        <h2>All Users</h2>
+        <p>Global view of every active and inactive HWID.</p>
+    </a>
+    <a href="/partner_check" class="card">
+        <div class="card-icon">📊</div>
+        <h2>Partner Subs</h2>
+        <p>Monitor monthly cycles, renewals, and nuke status.</p>
+    </a>
+</div>
+
+<a href="/logout" class="logout-btn">Logout</a>
+
+</body>
+</html>
 """
 
 PARTNER_DASHBOARD_HTML = """
@@ -225,8 +324,8 @@ th{background-color:#2c3e50;color:white;}
 
 <script>
 function nukePartner(u){if(confirm('NUKE this partner?')){fetch('/partners/api/nuke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}).then(r=>r.json()).then(d=>{alert(d.message);location.reload();});}}
-function renewPartner(u){if(confirm('Reset their 30-day cycle?'){fetch('/partners/api/renew',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}).then(r=>r.json()).then(d=>{alert(d.message);location.reload();});}}
-function unnukePartner(u){if(confirm('Unnuke partner and reset 30-day cycle?'){fetch('/partners/api/renew',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}).then(r=>r.json()).then(d=>{alert(d.message);location.reload();});}}
+function renewPartner(u){if(confirm('Reset their 30-day cycle?')){fetch('/partners/api/renew',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}).then(r=>r.json()).then(d=>{alert(d.message);location.reload();});}}
+function unnukePartner(u){if(confirm('Unnuke partner and reset 30-day cycle?')){fetch('/partners/api/renew',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}).then(r=>r.json()).then(d=>{alert(d.message);location.reload();});}}
 </script></body></html>
 """
 
@@ -446,32 +545,32 @@ def partner_check():
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Query gets total partners, counts ONLY ACTIVE licenses, and gets start date
     cursor.execute("""
         SELECT p.*, 
                (SELECT COUNT(id) FROM licenses WHERE partner_id = p.id AND is_active = TRUE) as active_count 
         FROM partners p 
         ORDER BY p.business_name
     """)
-    partners = cursor.fetchall()
+    rows = cursor.fetchall()
     
-    # Calculate days left for each partner
-    for p in partners:
-        p = dict(p) # Convert to dict
-        if p['subscription_start_date']:
-            start_dt = p['subscription_start_date']
-            # Ensure it's a datetime object if it isn't already
+    partners_list = [] # Create a brand new list
+    for p in rows:
+        p_dict = dict(p) # Convert to standard dictionary
+        if p_dict['subscription_start_date']:
+            start_dt = p_dict['subscription_start_date']
             if isinstance(start_dt, str):
                 start_dt = datetime.strptime(start_dt, "%Y-%m-%d %H:%M:%S")
             renewal_dt = start_dt + timedelta(days=30)
-            p['days_left'] = (renewal_dt - datetime.now()).days
+            p_dict['days_left'] = (renewal_dt - datetime.now()).days
         else:
-            p['days_left'] = 0
+            p_dict['days_left'] = 0
             
+        partners_list.append(p_dict) # Append the updated dictionary
+        
     cursor.close()
     conn.close()
     
-    return render_template_string(PARTNER_CHECK_HTML, partners=partners)
+    return render_template_string(PARTNER_CHECK_HTML, partners=partners_list)
 
 @app.route('/partners/api/renew', methods=['POST'])
 @login_required('master')
