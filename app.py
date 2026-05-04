@@ -7,8 +7,9 @@ from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+# REQUIRED FOR LOGINS: Change this to a long random string in Render Environment Variables
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "default_secret_key")
-SECRET_KEY = os.environ.get("EA_SECRET_KEY", "anom") # Your EA hash key
+SECRET_KEY = os.environ.get("EA_SECRET_KEY", "anom") # MUST MATCH MQL5 EA CODE
 MASTER_USERNAME = os.environ.get("MASTER_USER", "admin")
 MASTER_PASSWORD = os.environ.get("MASTER_PASS", "changeme")
 
@@ -18,7 +19,6 @@ def get_db():
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
-    # Create Partners Table
     cursor.execute('''CREATE TABLE IF NOT EXISTS partners (
                     id SERIAL PRIMARY KEY,
                     business_name TEXT UNIQUE NOT NULL,
@@ -27,7 +27,6 @@ def init_db():
                     max_clients INTEGER DEFAULT 50,
                     is_active BOOLEAN DEFAULT TRUE
                 )''')
-    # Create Licenses Table (Now includes partner_id for linking)
     cursor.execute('''CREATE TABLE IF NOT EXISTS licenses (
                     id SERIAL PRIMARY KEY,
                     hwid TEXT UNIQUE NOT NULL,
@@ -41,9 +40,9 @@ def init_db():
     conn.close()
 
 # ==========================================
-# HTML TEMPLATES
+# HTML TEMPLATES (Using ''' prevents copy-paste invisible character bugs)
 # ==========================================
-LOGIN_HTML = """
+LOGIN_HTML = '''
 <!DOCTYPE html><html><head><title>System Login</title>
 <style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}
 .box{background:#fff;padding:40px;border-radius:10px;box-shadow:0 4px 15px rgba(0,0,0,0.1);width:350px;text-align:center;}
@@ -55,9 +54,9 @@ button:hover{background:#2980b9;}</style></head><body>
 <form method="POST"><input type="text" name="username" placeholder="Username" required>
 <input type="password" name="password" placeholder="Password" required>
 <button type="submit">Login</button></form></div></body></html>
-"""
+'''
 
-MASTER_DASHBOARD_HTML = """
+MASTER_DASHBOARD_HTML = '''
 <!DOCTYPE html><html><head><title>Master Admin</title>
 <style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;margin:0;padding:40px;}
 .header{text-align:center;margin-bottom:40px;} h1{color:#2c3e50;}
@@ -70,7 +69,7 @@ MASTER_DASHBOARD_HTML = """
 <a href="/retail" style="text-decoration:none;"><div class="card"><h2>👤 Retail Clients</h2><p>Manage direct-to-consumer licenses.</p></div></a>
 <a href="/partners" style="text-decoration:none;"><div class="card"><h2>🏢 B2B Partners</h2><p>Manage brokers, prop firms, and influencers.</p></div></a>
 </div></body></html>
-"""
+'''
 
 PARTNER_DASHBOARD_HTML = '''
 <!DOCTYPE html><html><head><title>{{ name }} Dashboard</title>
@@ -86,8 +85,7 @@ input[type="text"],input[type="number"]{width:100%;padding:10px;border:1px solid
 button{padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600;color:white;}
 .btn-add{background:#28a745;flex:1;} 
 .btn-remove{background:#dc3545;flex:1;}
-table{width:100%;border-collapse:collapse;margin-top:20px;} 
-th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #dee2e6;}
+table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #dee2e6;}
 th{background-color:#3498db;color:white;} 
 .badge{padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;color:white;}
 .badge-active{background:#28a745;} 
@@ -108,22 +106,21 @@ th{background-color:#3498db;color:white;}
     </div>
 </div>
 
-<table><thead><tr><th>HWID</th><th>Status</th><th>Expires On</th><th>Days Left</th></tr></thead><tbody>
+<table><thead><tr><th>HWID</th><th>Status</th><th>Expires On</th><th>Days Left</th><th>Action</th></tr></thead><tbody>
 {% for row in licenses %}
 <tr>
     <td class="hwid-col" title="{{ row['hwid'] }}">{{ row['hwid'][:20] }}...</td>
     <td>
-        {% if row['is_active'] and row['days_left'] > 7 %}
-            <span class="badge badge-active">Active</span>
-        {% elif row['is_active'] and row['days_left'] <= 7 %} 
-            <span class="badge badge-expiring">Expiring</span>
-        {% else %} 
-            <span class="badge badge-inactive">Inactive</span>
-        {% endif %}
+        {% if row['is_active'] and row['days_left'] > 7 %}<span class="badge badge-active">Active</span>
+        {% elif row['is_active'] and row['days_left'] <= 7 %}<span class="badge badge-expiring">Expiring</span>
+        {% else %}<span class="badge badge-inactive">Inactive</span>{% endif %}
     </td>
     <td>{{ row['expiry_date'] }}</td>
     <td style="color:{% if row['days_left'] <= 7 %}red{% endif %};font-weight:bold;">
         {% if row['is_active' %}{{ row['days_left }} Days{% else %}N/A{% endif %}
+    </td>
+    <td>
+        <button class="badge badge-inactive" style="border:none;cursor:pointer;padding:4px 8px;" onclick="deleteClient('{{ row['hwid'] }}')">Delete</button>
     </td>
 </tr>
 {% endfor %}</tbody></table></div>
@@ -134,74 +131,107 @@ function manageLicense(action){
     var months = document.getElementById("monthsInput").value;
     if(!hwid){alert("Enter HWID!");return;}
     
-    console.log("Sending request to: /partner/api/" + action);
-    
     fetch('/partner/api/'+action + '?v=' + new Date().getTime(), {
         method:'POST',
         headers:{'Content-Type':'application/json'}, 
         body: JSON.stringify({hwid:hwid, months:parseInt(months)})
     })
     .then(r => {
-        console.log("Raw Status: " + r.status);
-        return r.text();
+        if(!r.ok) { alert("Network error! Session may have expired. Log out and log back in."); return; }
+        return r.json();
     })
-    .then(text => {
-        console.log("Server Responded With: ", text);
-        alert("DEBUG: Check F12 Console!");
+    .then(d => {
+        alert(d.message); 
+        if(d.success) location.reload();
     })
-    .catch(error => {
-        console.error("JAVASCRIPT ERROR: ", error.message);
-    });
+    .catch(error => alert("JavaScript Error: " + error.message);
 }
 
 function deleteClient(hwid){
     if(confirm('Delete this client permanently?')){
-        console.log("Sending delete request for: " + hwid);
         fetch('/partner/api/delete/'+hwid + '?v=' + new Date().getTime(), {method:'DELETE'})
-        .then(r => r.text())
-        .then(text => {
-            console.log("Delete Server Response: ", text);
-            alert("DEBUG: Check F12 Console!");
+        .then(r => {
+            if(!r.ok) { alert("Network error!"); return; }
+            return r.json();
         })
-        .catch(error => console.error("JAVASCRIPT ERROR: " + error.message);
+        .then(d => {
+            alert(d.message); 
+            if(d.success) location.reload();
+        })
+        .catch(error => alert("JavaScript Error: " + error.message);
     }
 }
-</script>
-</body></html>
+</script></body></html>
 '''
 
-# (Retail HTML is same as before, shortened for space)
-RETAIL_DASHBOARD_HTML = """
+RETAIL_DASHBOARD_HTML = '''
 <!DOCTYPE html><html><head><title>Retail Manager</title>
-<style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;margin:0;padding:20px;color:#333;}
+<style>
+body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;margin:0;padding:20px;color:#333;}
 .container{max-width:900px;margin:20px auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.05);}
-h2{text-align:center;color:#2c3e50;} .card{background:#f8f9fa;padding:20px;border-radius:8px;margin-bottom:25px;border:1px solid #e9ecef;}
-.form-group{margin-bottom:15px;} label{display:block;font-weight:600;margin-bottom:5px;color:#495057;font-size:14px;}
+h2{text-align:center;color:#2c3e50;} 
+.card{background:#f8f9fa;padding:20px;border-radius:8px;margin-bottom:25px;border:1px solid #e9ecef;}
+.form-group{margin-bottom:15px;} 
+label{display:block;font-weight:600;margin-bottom:5px;color:#495057;font-size:14px;}
 input[type="text"],input[type="number"]{width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;box-sizing:border-box;}
-.btn-group{display:flex;gap:10px;} button{padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600;color:white;}
-.btn-add{background:#28a745;flex:1;} .btn-remove{background:#dc3545;flex:1;}
+.btn-group{display:flex;gap:10px;} 
+button{padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600;color:white;}
+.btn-add{background:#28a745;flex:1;} 
+.btn-remove{background:#dc3545;flex:1;}
 table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #dee2e6;}
-th{background-color:#2ecc71;color:white;} .badge{padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;color:white;}
-.badge-active{background:#28a745;} .badge-inactive{background:#dc3545;} .badge-expiring{background:#ffc107;color:#333;}
-.hwid-col{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}</style></head><body>
+th{background-color:#2ecc71;color:white;} 
+.badge{padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;color:white;}
+.badge-active{background:#28a745;} 
+.badge-inactive{background:#dc3545;} 
+.badge-expiring{background:#ffc107;color:#333;}
+.hwid-col{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}
+</style></head><body>
 <div class="container"><h2>👤 Direct Retail Clients</h2>
-<div class="card"><div class="form-group"><label>Hardware ID (HWID)</label><input type="text" id="hwidInput" placeholder="Paste client HWID here..."></div>
-<div class="form-group"><label>Months to Activate</label><input type="number" id="monthsInput" value="1" min="1" max="24"></div>
-<div class="btn-group"><button class="btn-add" onclick="manageLicense('add')">✅ Activate</button><button class="btn-remove" onclick="manageLicense('remove')">❌ Deactivate</button></div></div>
+<div class="card">
+    <div class="form-group"><label>Hardware ID (HWID)</label><input type="text" id="hwidInput" placeholder="Paste client HWID here..."></div>
+    <div class="form-group"><label>Months to Activate</label><input type="number" id="monthsInput" value="1" min="1" max="24"></div>
+    <div class="btn-group">
+        <button class="btn-add" onclick="manageRetailLicense('add')">✅ Activate</button>
+        <button class="btn-remove" onclick="manageRetailLicense('remove')">❌ Deactivate</button>
+    </div>
+</div>
 <table><thead><tr><th>HWID</th><th>Status</th><th>Expires On</th><th>Days Left</th><th>Action</th></tr></thead><tbody>
 {% for row in licenses %}
-<tr><td class="hwid-col" title="{{ row['hwid'] }}">{{ row['hwid'][:20] }}...</td>
-<td>{% if row['is_active'] and row['days_left'] > 7 %}<span class="badge badge-active">Active</span>{% elif row['is_active'] and row['days_left'] <= 7 %}<span class="badge badge-expiring">Expiring</span>{% else %}<span class="badge badge-inactive">Inactive</span>{% endif %}</td>
-<td>{{ row['expiry_date'] }}</td><td style="color:{% if row['days_left'] <= 7 %}red{% endif %};font-weight:bold;">{% if row['is_active'] %}{{ row['days_left'] }} Days{% else %}N/A{% endif %}</td>
-<td><a href="/retail/delete/{{ row['hwid'] }}" class="badge badge-inactive" style="text-decoration:none;" onclick="return confirm('Delete?')">Delete</a></td></tr>
+<tr>
+    <td class="hwid-col" title="{{ row['hwid'] }}">{{ row['hwid'][:20] }}...</td>
+    <td>
+        {% if row['is_active'] and row['days_left'] > 7 %}<span class="badge badge-active">Active</span>
+        {% elif row['is_active'] and row['days_left'] <= 7 %}<span class="badge badge-expiring">Expiring</span>
+        {% else %}<span class="badge badge-inactive">Inactive</span>{% endif %}
+    </td>
+    <td>{{ row['expiry_date'] }}</td>
+    <td style="color:{% if row['days_left'] <= 7 %}red{% endif %};font-weight:bold;">{% if row['is_active' %}{{ row['days_left }} Days{% else %}N/A{% endif %}</td>
+    <td><a href="/retail/delete/{{ row['hwid'] }}" class="badge badge-inactive" style="text-decoration:none;" onclick="return confirm('Delete?')">Delete</a></td>
+</tr>
 {% endfor %}</tbody></table></div>
+
 <script>
-function manageLicense(action){var hwid=document.getElementById('hwidInput').value.trim();var months=document.getElementById('monthsInput').value;
-if(!hwid){alert("Enter HWID!");return;}
-fetch('/retail/api/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwid:hwid,months:parseInt(months)})})
-.then(r=>r.json()).then(d=>{alert(d.message);if(d.success)location.reload();});}
+function manageRetailLicense(action){
+    var hwid = document.getElementById("hwidInput").value.trim();
+    var months = document.getElementById("monthsInput").value;
+    if(!hwid){alert("Enter HWID!");return;}
+    
+    fetch('/retail/api/'+action + '?v=' + new Date().getTime(), {
+        method:'POST',headers:{'Content-Type':'application/json'}, 
+        body: JSON.stringify({hwid:hwid,months:parseInt(months)})
+    })
+    .then(r => {
+        if(!r.ok) { alert("Network error! Session may have expired. Log out and log in."); return; }
+        return r.json();
+    })
+    .then(d => {
+        alert(d.message); 
+        if(d.success) location.reload();
+    })
+    .catch(error => alert("JavaScript Error: " + error.message);
+}
 </script></body></html>
-"""
+'''
 
 # ==========================================
 # ROUTES: AUTH & MASTER DASHBOARD
@@ -259,7 +289,7 @@ def master_dashboard():
 @login_required('master')
 def retail_dashboard():
     conn = get_db()
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor =odu_cursor(cursor_factory=RealDictCursor)
     cursor.execute("SELECT * FROM licenses WHERE partner_id IS NULL ORDER BY created_at DESC")
     rows = cursor.fetchall()
     licenses_list = []
@@ -268,7 +298,7 @@ def retail_dashboard():
         if row_dict['created_at']:
             created_dt = row_dict['created_at'].strftime("%Y-%m-%d %H:%M:%S")
             created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
-            expiry_dt = created_dt + timedelta(days=30 * row_dict['months_pushed'])
+            expiry_dt = created_dt + timedelta(days=30 * row_dict['months_purchased'])
             days_left = (expiry_dt - datetime.now()).days
             row_dict['expiry_date'] = expiry_dt.strftime("%Y-%m-%d")
             row_dict['days_left'] = days_left
@@ -300,7 +330,7 @@ def retail_api(action):
     conn.commit()
     cursor.close()
     conn.close()
-    return jsonify({"success": True, "message": f"Retail client updated!"})
+    return jsonify({"success": True, "message": "Retail client updated!"})
 
 @app.route('/retail/delete/<hwid>')
 @login_required('master')
@@ -322,7 +352,6 @@ def partners_dashboard():
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Get partners and their live client count
     cursor.execute("""
         SELECT p.*, 
                (SELECT COUNT(id) FROM licenses WHERE partner_id = p.id) as client_count 
@@ -355,17 +384,17 @@ def partners_dashboard():
     <td>{{ p['username'] }}</td>
     <td>{{ p['client_count'] }} / {{ p['max_clients'] }}</td>
     <td>{% if p['is_active'] %}<span class="badge badge-active">Active</span>{% else %}<span class="badge badge-inactive">NUKED</span>{% endif %}</td>
-    <!-- THIS IS WHERE THE NEW BUTTON IS -->
     <td>
-        {% if p['is_active'] %}<a href="/master/view_partner/{{ p['username'] }}" style="text-decoration:none;padding:6px 12px;background:#3498db;color:white;border-radius:4px;font-size:12px;margin-right:5px;">View Clients</a>{% endif %}
-        {% if p['is_active'] %}<button class="btn-nuke" onclick="nukePartner('{{ p['username'] }}')">NUKE</button>{% endif %}
+        {% if p['is_active' %}<a href="/master/view_partner/{{ p['username'] }}" style="text-decoration:none;padding:6px 12px;background:#3498db;color:white;border-radius:4px;font-size:12px;margin-right:5px;">View Clients</a>{% endif %}
+        {% if p['is_active' %}<button class="btn-nuke" onclick="nukePartner('{{ p['username'] }}')">NUKE</button>{% endif %}
     </td>
     </tr>{% endfor %}
     </tbody></table></div>
     
     <script>
     function addPartner(){var n=document.getElementById('bname').value;var m=document.getElementById('mclients').value;if(!n){alert('Enter name');return;}
-    fetch('/partners/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,max:m})}).then(r=>r.json()).then(d=>{alert(d.message);if(d.success)location.reload();});}
+    fetch('/partners/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,max:m})})
+    .then(r=>r.json()).then(d=>{alert(d.message);if(d.success)location.reload();});}
     function nukePartner(u){if(confirm('NUKE this partner? ALL their clients will instantly shut down!')){fetch('/partners/api/nuke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}).then(r=>r.json()).then(d=>{alert(d.message);location.reload();});}}
     </script></body></html>
     """, partners=partners)
@@ -378,21 +407,19 @@ def add_partner():
     max_c = data.get('max', 50)
     if not name: return jsonify({"success": False, "message": "Enter name"})
     
-    # Create username from business name
     username = name.lower().replace(" ", "_").replace(".", "")
-    plain_pass = os.urandom(8).hex() # Auto-generate secure password
+    plain_pass = os.urandom(8).hex() 
     pass_hash = generate_password_hash(plain_pass)
     
     conn = get_db()
     cursor = conn.cursor()
     try:
         cursor.execute("INSERT INTO partners (business_name, username, password_hash, max_clients) VALUES (%s, %s, %s, %s) RETURNING password_hash", (name, username, pass_hash, max_c))
-        # We have to return the plain text password exactly once when created!
     except Exception as e:
         conn.rollback()
         cursor.close()
         conn.close()
-        return jsonify({"success": False, "message": "Name already exists"})
+        return jsonify({"success": False, "Name already exists"})
     
     conn.commit()
     cursor.close()
@@ -406,7 +433,6 @@ def nuke_partner():
     username = data.get('username')
     conn = get_db()
     cursor = conn.cursor()
-    # THE NUCLEAR OPTION: Turn off partner, AND instantly deactivate all their clients
     cursor.execute("UPDATE licenses SET is_active = FALSE WHERE partner_id = (SELECT id FROM partners WHERE username = %s)", (username,))
     cursor.execute("UPDATE partners SET is_active = FALSE WHERE username = %s", (username,))
     conn.commit()
@@ -424,12 +450,10 @@ def partner_dashboard():
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
-    # Get Partner Info
     cursor.execute("SELECT business_name, max_clients FROM partners WHERE id = %s", (pid,))
     partner = cursor.fetchone()
     if not partner: return redirect(url_for('login'))
     
-    # Get Their Clients
     cursor.execute("SELECT * FROM licenses WHERE partner_id = %s ORDER BY created_at DESC", (pid,))
     rows = cursor.fetchall()
     
@@ -451,7 +475,6 @@ def partner_dashboard():
             row_dict['days_left'] = 0
         licenses_list.append(row_dict)
         
-    # Count clients
     cursor.execute("SELECT COUNT(id) FROM licenses WHERE partner_id = %s", (pid,))
     client_count = cursor.fetchone()['count']
     
@@ -469,39 +492,33 @@ def partner_api(action):
     hwid = data.get('hwid', '').strip()
     months = data.get('months', 1)
     
-    if not hwid: 
-        return jsonify({"success": False, "message": "Invalid HWID"})
+    if not hwid: return jsonify({"success": False, "Invalid HWID"})
         
     conn = get_db()
     cursor = conn.cursor()
     
-    # STEP 1: Check if HWID exists ANYWHERE in the database (Prevents stealing retail clients)
     cursor.execute("SELECT partner_id, is_active FROM licenses WHERE hwid = %s", (hwid,))
     existing = cursor.fetchone()
     
     if existing:
         cursor.close()
         conn.close()
-        # If it belongs to THIS partner already, tell them to use Renew
         if existing['partner_id'] == pid:
-            return jsonify({"success": False, "message": "HWID already exists under your account! Use Renew to add more time."})
-        # If it belongs to someone else (Retail or another Partner), block it completely
+            return jsonify({"success": False, "HWID already exists under your account! Use Delete to clear it first, then add it again."})
         else:
-            return jsonify({"success": False, "message": "HWID is already registered under another account."})
+            return jsonify({"success": False, "HWID is already registered under another account."})
 
-    # STEP 2: Clean Insert (No complex SQL conflicts)
     try:
         cursor.execute("INSERT INTO licenses (hwid, partner_id, is_active, months_purchased, created_at) VALUES (%s, %s, TRUE, %s, CURRENT_TIMESTAMP)", (hwid, pid, months))
         conn.commit()
         cursor.close()
         conn.close()
-        return jsonify({"success": True, "message": "Client activated successfully!"})
+        return jsonify({"success": True, "Client activated successfully!"})
     except Exception as e:
-        # If it still fails, print the EXACT database error so we aren't guessing anymore
         conn.rollback()
         cursor.close()
         conn.close()
-        return jsonify({"success": False, "message": f"Database Error: {str(e)}"})
+        return jsonify({"success": False, "Message: " + str(e)})
 
 @app.route('/partner/api/delete/<hwid>', methods=['DELETE'])
 @login_required('partner')
@@ -509,12 +526,83 @@ def partner_delete_client(hwid):
     pid = session['partner_id']
     conn = get_db()
     cursor = conn.cursor()
-    # Security: Ensures the partner can ONLY delete their own clients, not someone else's
     cursor.execute("DELETE FROM licenses WHERE hwid = %s AND partner_id = %s", (hwid, pid))
     conn.commit()
     cursor.close()
     conn.close()
-    return jsonify({"success": True, "message": "Client deleted and freed up a slot!"})
+    return jsonify({"success": True, "Client deleted and freed up a slot!"})
+
+# ==========================================
+# ROUTES: VIEW PARTNER CLIENTS (Master View)
+# ==========================================
+@app.route('/master/view_partner/<username>')
+@login_required('master')
+def master_view_partner(username):
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    cursor.execute("SELECT id, business_name FROM partners WHERE LOWER(username) = LOWER(%s)", (username,))
+    partner = cursor.fetchone()
+    if not partner: 
+        cursor.close()
+        conn.close()
+        return redirect(url_for('partners_dashboard'))
+    
+    pid = partner['id']
+    
+    cursor.execute("SELECT * FROM licenses WHERE partner_id = %s ORDER BY created_at DESC", (pid,))
+    rows = cursor.fetchall()
+    
+    licenses_list = []
+    for row in rows:
+        row_dict = dict(row)
+        if row_dict['created_at']:
+            created_dt = row_dict['created_at'].strftime("%Y-%m-%d %H:%M:%S")
+            created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
+            expiry_dt = created_dt + timedelta(days=30 * row_dict['months_purchased'])
+            days_left = (expiry_dt - datetime.now()).days
+            row_dict['expiry_date'] = expiry_dt.strftime("%Y-%m-%d")
+            row_dict['days_left'] = days_left
+            if days_left <= 0 and row_dict['is_active']:
+                cursor.execute("UPDATE licenses SET is_active = FALSE WHERE id = %s", (row_dict['id'],))
+                row_dict['is_active'] = False
+        else:
+            row_dict['expiry_date'] = "N/A"
+            row_dict['days_left'] = 0
+        licenses_list.append(row_dict)
+        
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+    return render_template_string("""
+    <html><head><title>Partner Clients</title>
+    <style>
+    body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;margin:0;padding:20px;} 
+    .container{max-width:900px;margin:20px auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.05);}
+    h2{text-align:center;color:#2c3e50;} 
+    .badge{padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;color:white;}
+    .badge-active{background:#28a745;} .badge-inactive{background:#dc3545;} .badge-expiring{background:#ffc107;color:#333;}
+    .back-link{display:inline-block;margin-bottom:20px;text-decoration:none;color:#3498db;font-weight:bold;}
+    table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #dee2e6;}
+    th{background-color:#3498db;color:white;} 
+    .hwid-col{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}</style></head><body>
+    <div class="container">
+    <a href="/partners" class="back-link">← Back to Partners</a>
+    <h2>{{ partner['business_name'] }} - Client List</h2>
+    
+    {% if licenses_list|length == 0 %}
+       <p style="text-align:center; color:#999;">This partner currently has 0 active clients in the database.</p>
+    {% endif %}
+    
+    <table><thead><tr><th>HWID</th><th>Status</th><th>Expires On</th><th>Days Left</th></tr></thead><tbody>
+    {% for row in licenses_list %}
+    <tr><td class="hwid-col" title="{{ row['hwid'] }}">{{ row['hwid'][:20] }}...</td>
+    <td>{% if row['is_active'] and row['days_left'] > 7 %}<span class="badge badge-active">Active</span>{% elif row['is_active'] and row['days_left'] <= 7 %}<span class="badge badge-expiring">Expiring</span>{% else %}<span class="badge badge-inactive">Inactive</span>{% endif %}</td>
+    <td>{{ row['expiry_date'] }}</td>
+    <td style="color:{% if row['days_left'] <= 7 %}red{% endif %};font-weight:bold;">{% if row['is_active'] %}{{ row['days_left'] }} Days{% else %}N/A{% endif %}</td></tr>
+    {% endfor %}</tbody></table></div></body></html>
+    """, partner=partner, licenses=licenses_list)
 
 # ==========================================
 # ROUTES: EA VALIDATION API (The Core Logic)
@@ -523,7 +611,7 @@ def partner_delete_client(hwid):
 def validate():
     try:
         data = request.json
-        hwid = str(data.get('hwid', '')).strip()
+        hwid = str(data.get('hwid', '').strip()
         timestamp = str(data.get('timestamp', '')).strip()
         token = data.get('token', '')
 
@@ -535,7 +623,7 @@ def validate():
 
         conn = get_db()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT l.is_active, l.created_at, l.months_purchased, p.is_active as partner_active FROM licenses l LEFT JOIN partners p ON l.partner_id = p.id WHERE l.hwid = %s", (hwid,))
+        cursor.execute("SELECT l.is_active, l.created_at, l.months_purchased, p.is_active as partner_active FROM licenses l LEFT JOIN partners p ON l.partner_id = p.id WHERE l.hwid = %s", (hwid))
         user = cursor.fetchone()
         
         if not user:
@@ -565,75 +653,7 @@ def validate():
         return jsonify({"status": "failed", "is_active": False})
         
     except Exception as e:
-        # If the database is broken, print the exact error to the EA so we know what's wrong!
         return jsonify({"status": "error", "message": str(e)})
-
-@app.route('/master/view_partner/<username>')
-@login_required('master')
-def master_view_partner(username):
-    conn = get_db()
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
-    cursor.execute("SELECT id, business_name FROM partners WHERE LOWER(username) = LOWER(%s)", (username,))
-    partner = cursor.fetchone()
-    if not partner: 
-        cursor.close()
-        conn.close()
-        return redirect(url_for('partners_dashboard'))
-    
-    pid = partner['id']
-    
-    # THIS IS THE LINE THAT WAS MISSING:
-    cursor.execute("SELECT * FROM licenses WHERE partner_id = %s ORDER BY created_at DESC", (pid,))
-    rows = cursor.fetchall()
-    
-    # Process the rows
-    licenses_list = []
-    for row in rows:
-        row_dict = dict(row)
-        if row_dict['created_at']:
-            created_dt = row_dict['created_at'].strftime("%Y-%m-%d %H:%M:%S")
-            created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
-            expiry_dt = created_dt + timedelta(days=30 * row_dict['months_purchased'])
-            days_left = (expiry_dt - datetime.now()).days
-            row_dict['expiry_date'] = expiry_dt.strftime("%Y-%m-%d")
-            row_dict['days_left'] = days_left
-            if days_left <= 0 and row_dict['is_active']:
-                cursor.execute("UPDATE licenses SET is_active = FALSE WHERE id = %s", (row_dict['id'],))
-                row_dict['is_active'] = False
-        else:
-            row_dict['expiry_date'] = "N/A"
-            row_dict['days_left'] = 0
-        licenses_list.append(row_dict)
-        
-    conn.commit()
-    cursor.close()
-    conn.close()
-    
-    return render_template_string("""
-    <html><head><title>Partner Clients</title>
-    <style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;margin:0;padding:20px;} .container{max-width:900px;margin:20px auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.05);}
-    h2{text-align:center;color:#2c3e50;} .badge{padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;color:white;}
-    .badge-active{background:#28a745;} .badge-inactive{background:#dc3545;} .badge-expiring{background:#ffc107;color:#333;}
-    .back-link{display:inline-block;margin-bottom:20px;text-decoration:none;color:#3498db;font-weight:bold;}
-    table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #dee2e6;}
-    th{background-color:#3498db;color:white;} .hwid-col{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}</style></head><body>
-    <div class="container">
-    <a href="/partners" class="back-link">← Back to Partners</a>
-    <h2>{{ partner['business_name'] }} - Client List</h2>
-    
-    {% if licenses_list|length == 0 %}
-       <p style="text-align:center; color:#999;">This partner currently has 0 active clients in the database.</p>
-    {% endif %}
-    
-    <table><thead><tr><th>HWID</th><th>Status</th><th>Expires On</th><th>Days Left</th></tr></thead><tbody>
-    {% for row in licenses_list %}
-    <tr><td class="hwid-col" title="{{ row['hwid'] }}">{{ row['hwid'][:20] }}...</td>
-    <td>{% if row['is_active'] and row['days_left'] > 7 %}<span class="badge badge-active">Active</span>{% elif row['is_active'] and row['days_left'] <= 7 %}<span class="badge badge-expiring">Expiring</span>{% else %}<span class="badge badge-inactive">Inactive</span>{% endif %}</td>
-    <td>{{ row['expiry_date'] }}</td>
-    <td style="color:{% if row['days_left'] <= 7 %}red{% endif %};font-weight:bold;">{% if row['is_active'] %}{{ row['days_left'] }} Days{% else %}N/A{% endif %}</td></tr>
-    {% endfor %}</tbody></table></div></body></html>
-    """, partner=partner, licenses=licenses_list)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
