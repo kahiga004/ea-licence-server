@@ -100,17 +100,45 @@ th{background-color:#3498db;color:white;} .badge{padding:4px 8px;border-radius:4
 <td style="color:{% if row['days_left'] <= 7 %}red{% endif %};font-weight:bold;">{% if row['is_active'] %}{{ row['days_left'] }} Days{% else %}N/A{% endif %}</td></tr>
 {% endfor %}</tbody></table></div>
 <script>
-function manageLicense(action){var hwid=document.getElementById('hwidInput').value.trim();var months=document.getElementById('monthsInput').value;
-if(!hwid){alert("Enter HWID!");return;}
-fetch('/partner/api/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwid:hwid,months:parseInt(months)})})
-.then(r=>r.json()).then(d=>{alert(d.message);if(d.success)location.reload();});}
+function manageLicense(action){
+    var hwid = document.getElementById('hwidInput').value.trim();
+    var months = document.getElementById("monthsInput").value;
+    if(!hwid){alert("Enter HWID!");return;}
+    
+    // Added '?v=' to bust browser cache & Added r.ok to catch silent network/session errors
+    fetch('/partner/api/'+action + '?v=' + new Date().getTime(), {
+        method:'POST',
+        headers:{'Content-Type':'application/json'}, 
+        body: JSON.stringify({hwid:hwid, months:parseInt(months)})
+    })
+    .then(r => {
+        if(!r.ok) { alert("Network error! Your session may have expired. Please log out and log back in."); return; }
+        return r.json();
+    })
+    .then(d => {
+        alert(d.message); 
+        if(d.success) location.reload();
+    })
+    .catch(error => {
+        alert("JavaScript Error: " + error.message);
+    });
+}
+
 function deleteClient(hwid){
     if(confirm('Delete this client permanently?')){
-        fetch('/partner/api/delete/'+hwid,{method:'DELETE'})
-        .then(r=>r.json()).then(d=>{alert(d.message);if(d.success)location.reload();});
+        fetch('/partner/api/delete/'+hwid + '?v=' + new Date().getTime(), {method:'DELETE'})
+        .then(r => {
+            if(!r.ok) { alert("Network error!"); return r.text(); }
+            return r.json();
+        })
+        .then(d => {
+            alert(d.message); 
+            if(d.success) location.reload();
+        })
+        .catch(error => alert("JavaScript Error: " + error.message);
     }
-}
-</script></body></html>
+</script>
+</body></html>
 """
 
 # (Retail HTML is same as before, shortened for space)
@@ -239,7 +267,7 @@ def retail_api(action):
     if action == 'add':
         cursor.execute("INSERT INTO licenses (hwid, partner_id, is_active, months_purchased, created_at) VALUES (%s, NULL, TRUE, %s, CURRENT_TIMESTAMP) ON CONFLICT (hwid) DO UPDATE SET is_active = TRUE, months_purchased = %s, created_at = CURRENT_TIMESTAMP, partner_id = NULL", (hwid, months, months))
     elif action == 'remove':
-        cursor.execute("UPDATE licenses SET is_active = FALSE WHERE hwid = %s AND partner_id IS NULL", (hwid,))
+        cursor.execute("UPDATE licenses SET is_active = false WHERE hwid = %s AND partner_id IS NULL", (hwid,))
     conn.commit()
     cursor.close()
     conn.close()
