@@ -105,39 +105,36 @@ function manageLicense(action){
     var months = document.getElementById("monthsInput").value;
     if(!hwid){alert("Enter HWID!");return;}
     
+    console.log("Sending request to: /partner/api/" + action); // DEBUG LINE 1
+    
     fetch('/partner/api/'+action + '?v=' + new Date().getTime(), {
         method:'POST',
         headers:{'Content-Type':'application/json'}, 
-        body: JSON.stringify({hwid:hwid, months:parseInt(months)})
+        body: JSON.stringify({hwid: hwid, months:parseInt(months)})
     })
     .then(r => {
-        if(!r.ok) { 
-            alert("Network error! Your session may have expired. Please log out and log back in."); 
-            return; 
-        }
-        return r.json();
+        console.log("Raw Status: " + r.status); // DEBUG LINE 2
+        return r.text(); // DEBUG LINE 3 - Returns raw text instead of JSON to see exactly what the server sent
     })
-    .then(d => {
-        alert(d.message); 
-        if(d.success) location.reload();
+    .then(text => {
+        console.log("Server Responded With: ", text); // DEBUG LINE 4
+        alert("DEBUG: Check F12 Console for server response!");
     })
     .catch(error => {
-        alert("JavaScript Error: " + error.message);
+        console.error("JAVASCRIPT ERROR: ", error.message); // DEBUG LINE 5
     });
 }
 
 function deleteClient(hwid){
     if(confirm('Delete this client permanently?')){
+        console.log("Sending delete request for: " + hwid);
         fetch('/partner/api/delete/'+hwid + '?v=' + new Date().getTime(), {method:'DELETE'})
-        .then(r => {
-            if(!r.ok) { alert("Network error!"); return; }
-            return r.json();
+        .then(r => r.text())
+        .then(text => {
+            console.log("Delete Server Response: ", text);
+            alert("DEBUG: Check F12 Console!");
         })
-        .then(d => {
-            alert(d.message); 
-            if(d.success) location.reload();
-        })
-        .catch(error => alert("JavaScript Error: " + error.message);
+        .catch(error => console.error("JAVASCRIPT ERROR: ", error.message));
     }
 </script>
 </body></html>
