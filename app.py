@@ -505,6 +505,7 @@ def master_view_partner(username):
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
+    # Get Partner Info
     cursor.execute("SELECT id, business_name FROM partners WHERE LOWER(username) = LOWER(%s)", (username,))
     partner = cursor.fetchone()
     if not partner: 
@@ -514,11 +515,11 @@ def master_view_partner(username):
     
     pid = partner['id']
     
-    # THIS IS THE LINE THAT WAS MISSING:
+    # Fetch Clients using the EXACT same query as the Partner Dashboard
     cursor.execute("SELECT * FROM licenses WHERE partner_id = %s ORDER BY created_at DESC", (pid,))
     rows = cursor.fetchall()
     
-    # Process the rows
+    # Process data using the EXACT same working logic as the Partner Dashboard
     licenses_list = []
     for row in rows:
         row_dict = dict(row)
@@ -554,7 +555,7 @@ def master_view_partner(username):
     <h2>{{ partner['business_name'] }} - Client List</h2>
     
     {% if licenses_list|length == 0 %}
-       <p style="text-align:center; color:#999;">This partner currently has 0 active clients in the database.</p>
+       <p style="text-align:center; color:red; font-weight:bold;">No clients found or database error. Check Render Logs.</p>
     {% endif %}
     
     <table><thead><tr><th>HWID</th><th>Status</th><th>Expires On</th><th>Days Left</th></tr></thead><tbody>
