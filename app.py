@@ -69,7 +69,10 @@ MASTER_DASHBOARD_HTML = """
 <div class="container">
 <a href="/retail" style="text-decoration:none;"><div class="card"><h2>👤 Retail Clients</h2><p>Manage direct-to-consumer licenses.</p></div></a>
 <a href="/partners" style="text-decoration:none;"><div class="card"><h2>🏢 B2B Partners</h2><p>Manage brokers, prop firms, and influencers.</p></div></a>
-</div></body></html>
+<!-- NEW CARD BELOW -->
+<a href="/all_clients" style="text-decoration:none;"><div class="card"><h2>🌍 All Users</h2><p>View every license in one place.</p></div></a>
+</div>
+</body></html>
 """
 
 PARTNER_DASHBOARD_HTML = """
@@ -144,6 +147,37 @@ if(!hwid){alert("Enter HWID!");return;}
 fetch('/retail/api/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwid:hwid,months:parseInt(months)})})
 .then(r=>r.json()).then(d=>{alert(d.message);if(d.success)location.reload();});}
 </script></body></html>
+"""
+
+ALL_CLIENTS_HTML = """
+<!DOCTYPE html><html><head><title>All Users</title>
+<style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;margin:0;padding:20px;color:#333;}
+.container{max-width:1100px;margin:20px auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.05);}
+h2{text-align:center;color:#2c3e50;} 
+.back-link{display:inline-block;margin-bottom:20px;text-decoration:none;color:#3498db;font-weight:bold;}
+table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #dee2e6;}
+th{background-color:#2c3e50;color:white;} 
+.hwid-col{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}
+.badge{padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;color:white;}
+.badge-active{background:#28a745;} .badge-inactive{background:#dc3545;} .badge-expiring{background:#ffc107;color:#333;}
+.badge-master{background:#3498db;} .badge-partner{background:#e67e22;}
+.btn-del{background:#dc3545;color:white;text-decoration:none;padding:4px 10px;border-radius:4px;font-size:12px;}</style></head><body>
+<div class="container">
+<a href="/master" class="back-link">← Back to Master Control</a>
+<h2>🌍 Global License View</h2>
+<table><thead><tr><th>HWID</th><th>Type</th><th>Partner Name</th><th>Status</th><th>Expires On</th><th>Days Left</th><th>Action</th></tr></thead><tbody>
+{% for row in licenses %}
+<tr>
+<td class="hwid-col" title="{{ row['hwid'] }}">{{ row['hwid'][:20] }}...</td>
+<td>{% if row['client_type'] == 'Master' %}<span class="badge badge-master">Master</span>{% else %}<span class="badge badge-partner">Partner</span>{% endif %}</td>
+<td>{{ row['partner_name'] }}</td>
+<td>{% if row['is_active'] and row['days_left'] > 7 %}<span class="badge badge-active">Active</span>{% elif row['is_active'] and row['days_left'] <= 7 %}<span class="badge badge-expiring">Expiring</span>{% else %}<span class="badge badge-inactive">Inactive</span>{% endif %}</td>
+<td>{{ row['expiry_date'] }}</td>
+<td style="color:{% if row['days_left'] <= 7 %}red{% endif %};font-weight:bold;">{% if row['is_active'] %}{{ row['days_left'] }} Days{% else %}N/A{% endif %}</td>
+<td>{% if row['client_type'] == 'Partner' %}<a href="/master/delete_partner_client/{{ row['hwid'] }}" class="btn-del" onclick="return confirm('Delete this partner client?')">Delete</a>{% else %}-{% endif %}</td>
+</tr>
+{% endfor %}</tbody></table>
+</div></body></html>
 """
 
 # ==========================================
@@ -446,6 +480,70 @@ def partner_delete_client(hwid):
     cursor.close()
     conn.close()
     return jsonify({"success": True, "message": "Client deleted and freed up a slot!"})
+
+# ==========================================
+# ROUTES: ALL USERS VIEW (Master Only)
+# ==========================================
+@app.route('/all_clients')
+@login_required('master')
+def all_clients_dashboard():
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Join licenses with partners to get the business name
+    cursor.execute("""
+        SELECT l.*, p.business_name as partner_name 
+        FROM licenses l 
+        LEFT JOIN partners p ON l.partner_id = p.id 
+        ORDER BY l.created_at DESC
+    """)
+    rows = cursor.fetchall()
+    
+    licenses_list = []
+    for row in rows:
+        row_dict = dict(row)
+        if row_dict['created_at']:
+            created_dt = row_dict['created_at'].strftime("%Y-%m-%d %H:%M:%S")
+            created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
+            expiry_dt = created_dt + timedelta(days=30 * row_dict['months_purchased'])
+            days_left = (expiry_dt - datetime.now()).days
+            row_dict['expiry_date'] = expiry_dt.strftime("%Y-%m-%d")
+            row_dict['days_left'] = days_left
+            if days_left <= 0 and row_dict['is_active']:
+                cursor.execute("UPDATE licenses SET is_active = FALSE WHERE id = %s", (row_dict['id'],))
+                row_dict['is_active'] = False
+        else:
+            row_dict['expiry_date'] = "N/A"
+            row_dict['days_left'] = 0
+            
+        # Tag as Master or Partner
+        if row_dict['partner_id'] is None:
+            row_dict['client_type'] = "Master"
+            row_dict['partner_name'] = "-"
+        else:
+            row_dict['client_type'] = "Partner"
+            # If partner was deleted/nuked, show unknown
+            row_dict['partner_name'] = row_dict['partner_name'] if row_dict['partner_name'] else "Deleted Partner"
+            
+        licenses_list.append(row_dict)
+        
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+    return render_template_string(ALL_CLIENTS_HTML, licenses=licenses_list)
+
+@app.route('/master/delete_partner_client/<hwid>')
+@login_required('master')
+def master_delete_partner_client(hwid):
+    conn = get_db()
+    cursor = conn.cursor()
+    # Master can only delete partner clients here, not master retail ones (to prevent accidents)
+    cursor.execute("DELETE FROM licenses WHERE hwid = %s AND partner_id IS NOT NULL", (hwid,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return "Deleted"
 
 # ==========================================
 # ROUTES: EA VALIDATION API (The Core Logic)
