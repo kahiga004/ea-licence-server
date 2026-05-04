@@ -72,56 +72,85 @@ MASTER_DASHBOARD_HTML = """
 </div></body></html>
 """
 
-PARTNER_DASHBOARD_HTML = """
+PARTNER_DASHBOARD_HTML = '''
 <!DOCTYPE html><html><head><title>{{ name }} Dashboard</title>
-<style>body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;margin:0;padding:20px;color:#333;}
+<style>
+body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;margin:0;padding:20px;color:#333;}
 .container{max-width:900px;margin:20px auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.05);}
-h2{text-align:center;color:#2c3e50;} .card{background:#f8f9fa;padding:20px;border-radius:8px;margin-bottom:25px;border:1px solid #e9ecef;}
-.form-group{margin-bottom:15px;} label{display:block;font-weight:600;margin-bottom:5px;color:#495057;font-size:14px;}
+h2{text-align:center;color:#2c3e50;} 
+.card{background:#f8f9fa;padding:20px;border-radius:8px;margin-bottom:25px;border:1px solid #e9ecef;}
+.form-group{margin-bottom:15px;} 
+label{display:block;font-weight:600;margin-bottom:5px;color:#495057;font-size:14px;}
 input[type="text"],input[type="number"]{width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;box-sizing:border-box;}
-.btn-group{display:flex;gap:10px;} button{padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600;color:white;}
-.btn-add{background:#28a745;flex:1;} .btn-remove{background:#dc3545;flex:1;}
-table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #dee2e6;}
-th{background-color:#3498db;color:white;} .badge{padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;color:white;}
-.badge-active{background:#28a745;} .badge-inactive{background:#dc3545;} .badge-expiring{background:#ffc107;color:#333;}
-.hwid-col{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}</style></head><body>
-<div class="container"><h2>🏢 {{ name }} - License Manager</h2>
+.btn-group{display:flex;gap:10px;} 
+button{padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600;color:white;}
+.btn-add{background:#28a745;flex:1;} 
+.btn-remove{background:#dc3545;flex:1;}
+table{width:100%;border-collapse:collapse;margin-top:20px;} 
+th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #dee2e6;}
+th{background-color:#3498db;color:white;} 
+.badge{padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;color:white;}
+.badge-active{background:#28a745;} 
+.badge-inactive{background:#dc3545;} 
+.badge-expiring{background:#ffc107;color:#333;}
+.hwid-col{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}
+</style></head><body>
+<div class="container">
+<h2>🏢 {{ name }} - License Manager</h2>
 <p style="text-align:center;color:#7f8c8d;">Active Clients: <b>{{ client_count }}</b> / {{ max_clients }} Limit</p>
-<div class="card"><div class="form-group"><label>Hardware ID (HWID)</label><input type="text" id="hwidInput" placeholder="Paste client HWID here..."></div>
-<div class="form-group"><label>Months to Activate</label><input type="number" id="monthsInput" value="1" min="1" max="24"></div>
-<div class="btn-group"><button class="btn-add" onclick="manageLicense('add')">✅ Activate</button><button class="btn-remove" onclick="manageLicense('remove')">❌ Deactivate</button></div></div>
+
+<div class="card">
+    <div class="form-group"><label>Hardware ID (HWID)</label><input type="text" id="hwidInput" placeholder="Paste client HWID here..."></div>
+    <div class="form-group"><label>Months to Activate</label><input type="number" id="monthsInput" value="1" min="1" max="24"></div>
+    <div class="btn-group">
+        <button class="btn-add" onclick="manageLicense('add')">✅ Activate</button>
+        <button class="btn-remove" onclick="manageLicense('remove')">❌ Deactivate</button>
+    </div>
+</div>
+
 <table><thead><tr><th>HWID</th><th>Status</th><th>Expires On</th><th>Days Left</th></tr></thead><tbody>
 {% for row in licenses %}
-<tr><td class="hwid-col" title="{{ row['hwid'] }}">{{ row['hwid'][:20] }}...</td>
-<td>{% if row['is_active'] and row['days_left'] > 7 %}<span class="badge badge-active">Active</span>
-{% elif row['is_active'] and row['days_left'] <= 7 %}<span class="badge badge-expiring">Expiring</span>
-{% else %}<span class="badge badge-inactive">Inactive</span>{% endif %}</td>
-<td>{{ row['expiry_date'] }}</td>
-<td style="color:{% if row['days_left'] <= 7 %}red{% endif %};font-weight:bold;">{% if row['is_active'] %}{{ row['days_left'] }} Days{% else %}N/A{% endif %}</td></tr>
+<tr>
+    <td class="hwid-col" title="{{ row['hwid'] }}">{{ row['hwid'][:20] }}...</td>
+    <td>
+        {% if row['is_active'] and row['days_left'] > 7 %}
+            <span class="badge badge-active">Active</span>
+        {% elif row['is_active'] and row['days_left'] <= 7 %} 
+            <span class="badge badge-expiring">Expiring</span>
+        {% else %} 
+            <span class="badge badge-inactive">Inactive</span>
+        {% endif %}
+    </td>
+    <td>{{ row['expiry_date'] }}</td>
+    <td style="color:{% if row['days_left'] <= 7 %}red{% endif %};font-weight:bold;">
+        {% if row['is_active' %}{{ row['days_left }} Days{% else %}N/A{% endif %}
+    </td>
+</tr>
 {% endfor %}</tbody></table></div>
+
 <script>
 function manageLicense(action){
     var hwid = document.getElementById("hwidInput").value.trim();
     var months = document.getElementById("monthsInput").value;
     if(!hwid){alert("Enter HWID!");return;}
     
-    console.log("Sending request to: /partner/api/" + action); // DEBUG LINE 1
+    console.log("Sending request to: /partner/api/" + action);
     
     fetch('/partner/api/'+action + '?v=' + new Date().getTime(), {
         method:'POST',
         headers:{'Content-Type':'application/json'}, 
-        body: JSON.stringify({hwid: hwid, months:parseInt(months)})
+        body: JSON.stringify({hwid:hwid, months:parseInt(months)})
     })
     .then(r => {
-        console.log("Raw Status: " + r.status); // DEBUG LINE 2
-        return r.text(); // DEBUG LINE 3 - Returns raw text instead of JSON to see exactly what the server sent
+        console.log("Raw Status: " + r.status);
+        return r.text();
     })
     .then(text => {
-        console.log("Server Responded With: ", text); // DEBUG LINE 4
-        alert("DEBUG: Check F12 Console for server response!");
+        console.log("Server Responded With: ", text);
+        alert("DEBUG: Check F12 Console!");
     })
     .catch(error => {
-        console.error("JAVASCRIPT ERROR: ", error.message); // DEBUG LINE 5
+        console.error("JAVASCRIPT ERROR: ", error.message);
     });
 }
 
@@ -134,11 +163,12 @@ function deleteClient(hwid){
             console.log("Delete Server Response: ", text);
             alert("DEBUG: Check F12 Console!");
         })
-        .catch(error => console.error("JAVASCRIPT ERROR: ", error.message));
+        .catch(error => console.error("JAVASCRIPT ERROR: " + error.message);
     }
+}
 </script>
 </body></html>
-"""
+'''
 
 # (Retail HTML is same as before, shortened for space)
 RETAIL_DASHBOARD_HTML = """
@@ -238,7 +268,7 @@ def retail_dashboard():
         if row_dict['created_at']:
             created_dt = row_dict['created_at'].strftime("%Y-%m-%d %H:%M:%S")
             created_dt = datetime.strptime(created_dt, "%Y-%m-%d %H:%M:%S")
-            expiry_dt = created_dt + timedelta(days=30 * row_dict['months_purchased'])
+            expiry_dt = created_dt + timedelta(days=30 * row_dict['months_pushed'])
             days_left = (expiry_dt - datetime.now()).days
             row_dict['expiry_date'] = expiry_dt.strftime("%Y-%m-%d")
             row_dict['days_left'] = days_left
