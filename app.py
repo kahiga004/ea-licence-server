@@ -405,7 +405,7 @@ def add_partner():
     data = request.json
     name = data.get('name', '').strip()
     max_c = data.get('max', 50)
-    if not name: return jsonify({"success": False, "message": "Enter name"})
+    if not name: return jsonify({"success": False, "Message: Enter name"})
     
     username = name.lower().replace(" ", "_").replace(".", "")
     plain_pass = os.urandom(8).hex() 
@@ -414,17 +414,16 @@ def add_partner():
     conn = get_db()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO partners (business_name, username, password_hash, max_clients) VALUES (%s, %s, %s, %s) RETURNING password_hash", (name, username, pass_hash, max_c))
+        cursor.execute("INSERT INTO partners (business_name, username, password_hash, max_clients) VALUES (%s, %s, %s, %s)", (name, username, pass_hash, max_c))
     except Exception as e:
         conn.rollback()
         cursor.close()
         conn.close()
-        return jsonify({"success": False, "Name already exists"})
+        return jsonify({"success": False, "Message: Name already exists"})
     
     conn.commit()
     cursor.close()
-    conn.close()
-    return jsonify({"success": True, "message": f"Partner Created!\nUsername: {username}\nPassword: {plain_pass}\n(Save this, you won't see it again!)"})
+    return jsonify({"success": True, "Message": f"Partner Created!\nUsername: {username}\nPassword: {plain_pass}\n(Save this, you won't see it again!)"})
 
 @app.route('/partners/api/nuke', methods=['POST'])
 @login_required('master')
