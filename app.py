@@ -25,7 +25,7 @@ def init_db():
                     username TEXT UNIQUE NOT NULL,
                     password_hash TEXT NOT NULL,
                     max_clients INTEGER DEFAULT 50,
-                    is_active BOOLEAN DEFAULT TRUE
+                    is_active BOOLEAN DEFAULT TRUE,
                     subscription_start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )''')
     # Create Licenses Table (Now includes partner_id for linking)
