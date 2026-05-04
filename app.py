@@ -101,18 +101,20 @@ th{background-color:#3498db;color:white;} .badge{padding:4px 8px;border-radius:4
 {% endfor %}</tbody></table></div>
 <script>
 function manageLicense(action){
-    var hwid = document.getElementById('hwidInput').value.trim();
+    var hwid = document.getElementById("hwidInput").value.trim();
     var months = document.getElementById("monthsInput").value;
     if(!hwid){alert("Enter HWID!");return;}
     
-    // Added '?v=' to bust browser cache & Added r.ok to catch silent network/session errors
     fetch('/partner/api/'+action + '?v=' + new Date().getTime(), {
         method:'POST',
         headers:{'Content-Type':'application/json'}, 
         body: JSON.stringify({hwid:hwid, months:parseInt(months)})
     })
     .then(r => {
-        if(!r.ok) { alert("Network error! Your session may have expired. Please log out and log back in."); return; }
+        if(!r.ok) { 
+            alert("Network error! Your session may have expired. Please log out and log back in."); 
+            return; 
+        }
         return r.json();
     })
     .then(d => {
@@ -128,7 +130,7 @@ function deleteClient(hwid){
     if(confirm('Delete this client permanently?')){
         fetch('/partner/api/delete/'+hwid + '?v=' + new Date().getTime(), {method:'DELETE'})
         .then(r => {
-            if(!r.ok) { alert("Network error!"); return r.text(); }
+            if(!r.ok) { alert("Network error!"); return; }
             return r.json();
         })
         .then(d => {
